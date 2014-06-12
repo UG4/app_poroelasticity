@@ -24,10 +24,10 @@ InitUG(dim, AlgebraType("CPU", 4));
 -- choose number of pre-Refinements (before sending grid onto different processes)      
 numPreRefs = util.GetParamNumber("-numPreRefs", 1)
 -- choose number of total Refinements (incl. pre-Refinements)
-numRefs = util.GetParamNumber("-numRefs", 2)
+numRefs = util.GetParamNumber("-numRefs", 3) --4
 
 startTime  = util.GetParamNumber("-start", 0.0, "end time") 
-endTime    = util.GetParamNumber("-end", 50000.0, "end time") 
+endTime    = util.GetParamNumber("-end", 100.0, "end time") 
 dt 		   = util.GetParamNumber("-dt", 1.0, "time step size")
 dtmin	   = util.GetParamNumber("-dtmin", 1.0, "minimal admissible time step size")
 dtred	   = util.GetParamNumber("-dtred", 0.5, "time step size reduction factor on divergence")
@@ -93,7 +93,7 @@ print("end approx_init")
 
 lambda = 1.0
 mu = 1.0
-Lambda = 5.0
+Lambda = 1.0
 epsilon = 1.0
 F=1.0
 alpha = 1.0
@@ -116,7 +116,7 @@ if (dim==2) then
 	--function UyDirichletTop(x, y, t) return true, (1.0-math.exp(-t*0.1))*(x*x-25.0)*0.04 end   -- uy (bottom)
 	function UyDirichletTop(x, y, t) return true, 1.0 end   -- uy (bottom)
 	function UyDirichletBottom(x, y, t) return true, 0.0 end   -- uy (bottom)
-	function PointSource(x, y, t) return true, 1.0 end      -- p  (left, right)
+	function PointSource(x, y, t) return true, 0.0 end      -- p  (left, right)
 	
 	function ThreeRegionFlowPerm(x, y, t, si) 
 	if math.abs(y)<2.5 then return Lambda*epsilon, 0, 0, Lambda*epsilon
@@ -168,7 +168,7 @@ end
 
 mandelDirichletBnd = DirichletBoundary()
 mandelDirichletBnd:add(LuaCondUserNumber("Dirichlet0"), "p", "TOP")
-mandelDirichletBnd:add(LuaCondUserNumber("PointSource"), "p", "SRC")
+--mandelDirichletBnd:add(LuaCondUserNumber("PointSource"), "p", "SRC")
 --mandelDirichletBnd:add(LuaCondUserNumber("UxDirichletTop"), "ux", "TOP")
 --mandelDirichletBnd:add(LuaCondUserNumber("UyDirichletTop"), "uy", "TOP")
 mandelDirichletBnd:add(LuaCondUserNumber("Dirichlet0"), "ux", "BOTTOM")
@@ -218,13 +218,36 @@ compressionLinker = ScaleAddLinkerNumber()
 compressionLinker:add(alpha, displacementEqDisc:divergence())
 flowEqDisc:set_mass_scale(1.0/M);
 flowEqDisc:set_mass(compressionLinker);
-flowEqDisc:set_diffusion(1.0);
+flowEqDisc:set_diffusion(0.01);
 
-flowEqDisc:set_quad_order(2) 
-displacementEqDisc:set_quad_order(2) 
+if (porder==1) then flowEqDisc:set_quad_order(2) end
+if (uorder==1) then displacementEqDisc:set_quad_order(2) end
 -- print info
-print(displacementEqDisc:config_string())
+
 --print(flowEqDisc:config_string())
+
+
+if dim == 3 then
+	--if (order == 1) then
+	--	displacementEqDisc:set_quad_order(3)  
+		--3:#ip`s: 6, 2:#ip`s: 8 
+	--	end
+	if (uorder == 2) then
+		displacementEqDisc:set_quad_order(7) 
+		flowEqDisc:set_quad_order(7)
+		--#ip`s: 31
+		end
+	--if (order == 3) then	
+	--	elemDisc:set_quad_order(11) 
+		--#ip`s: 90
+	--	end
+	--if (order > 3) then	
+	--	elemDisc:set_quad_order(11) 
+		--#ip`s: 90
+	--	end
+end
+--print(flowEqDisc:config_string())
+print(displacementEqDisc:config_string())
 
 massLinker = ScaleAddLinkerNumber()
 massLinker:add(rho/M, flowEqDisc:value())
@@ -417,7 +440,17 @@ Interpolate("VelY0", u, "uy", startTime)
 end
 
 if (dim==3) then
-function Pres0(x, y, z, t) return 0.0 end 
+function Pres0(x, y, z, t)
+ if ((x-0.5)*(x-0.5)+y*y+(z+0.5)*(z+0.5)) < 0.0625 
+ 	then return 1.0  
+ elseif ((x+0.5)*(x+0.5)+(y-0.5)*(y-0.5)+(z+0.5)*(z+0.5)) < 0.0625 
+ 	then return 1.0  
+ elseif ((x+0.5)*(x+0.5)+(y+0.5)*(y+0.5)+(z+0.5)*(z+0.5)) < 0.0625 
+ 	then return 1.0 
+ else return 0.0 end
+ end 
+ 
+ 
 function VelX0(x, y, z, t) return 0.0 end
 function VelY0(x, y, z, t) return 0.0 end
 function VelZ0(x, y, z, t) return 0.0 end

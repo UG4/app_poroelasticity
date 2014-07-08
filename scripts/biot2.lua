@@ -24,13 +24,15 @@ InitUG(dim, AlgebraType("CPU", 4));
 -- choose number of pre-Refinements (before sending grid onto different processes)      
 numPreRefs = util.GetParamNumber("-numPreRefs", 1)
 -- choose number of total Refinements (incl. pre-Refinements)
-numRefs = util.GetParamNumber("-numRefs", 3) --4
+numRefs = util.GetParamNumber("-numRefs", 2) --4
 
 startTime  = util.GetParamNumber("-start", 0.0, "end time") 
 endTime    = util.GetParamNumber("-end", 100.0, "end time") 
 dt 		   = util.GetParamNumber("-dt", 1.0, "time step size")
-dtmin	   = util.GetParamNumber("-dtmin", 1.0, "minimal admissible time step size")
-dtred	   = util.GetParamNumber("-dtred", 0.5, "time step size reduction factor on divergence")
+dtMin	   = util.GetParamNumber("-dtmin", 1e-4, "minimal admissible time step size")
+dtMax	   = util.GetParamNumber("-dtmax", 1e+2, "minimal admissible time step size")
+dtRed	   = util.GetParamNumber("-dtred", 0.5, "time step size reduction factor on divergence")
+timeTol    = 1e-4
 
 
 
@@ -465,7 +467,15 @@ end
 --util.SolveLinearTimeProblem(u, domainDisc, lsolver, vtk, "MandelTransient",
 --							   "ImplEuler", 1, startTime, endTime, dt, dtmin, dtred);
 							   
-util.SolveNonlinearTimeProblem(u, domainDisc, nlsolver, vtk, "MandelTransient",
-						   "ImplEuler", 1, startTime, endTime, dt, dtmin, dtred);  
+--util.SolveNonlinearTimeProblem(u, domainDisc, nlsolver, vtk, "PoroElasticityTransient",
+--						   "ImplEuler", 1, startTime, endTime, dt, dtMin, dtRed); 
+						   
+
+						   
+util.SolveNonlinearProblemAdaptiveTimestep(u, domainDisc, nlsolver, vtk, "PoroElasticityAdaptive",
+	startTime, endTime, dt, dtMin, dtMax, dtRed, timeTol)
+						    
+						   
+						   
 
 exit();

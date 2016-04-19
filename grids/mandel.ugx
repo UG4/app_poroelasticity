@@ -8,12 +8,11 @@
 			<edges>8 9 10 11</edges>
 			<faces>0 1 2 3</faces>
 		</subset>
-		<subset name="BOUNDARY" color="1 0 0 1" state="393216"/>
 		<subset name="TOP" color="0 1 0 1" state="393216">
 			<vertices>7 0 3</vertices>
 			<edges>6 7</edges>
 		</subset>
-		<subset name="BOTTOM" color="0 0 1 1" state="393216">
+		<subset name="BOT" color="0 0 1 1" state="393216">
 			<vertices>5 1 2</vertices>
 			<edges>2 3</edges>
 		</subset>

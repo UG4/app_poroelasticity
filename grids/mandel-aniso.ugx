@@ -9,21 +9,20 @@
 			<edges>8 9 10 11</edges>
 			<faces>0 1 2 3</faces>
 		</subset>
-		<subset name="BOUNDARY" color="1 0 0 1" state="393216"/>
 		<subset name="TOP" color="0 1 0 1" state="393216">
-			<vertices>7</vertices>
+			<vertices>7 3 0</vertices>
 			<edges>6 7</edges>
 		</subset>
-		<subset name="BOTTOM" color="0 0 1 1" state="393216">
-			<vertices>5</vertices>
+		<subset name="BOT" color="0 0 1 1" state="393216">
+			<vertices>5 1 2</vertices>
 			<edges>2 3</edges>
 		</subset>
 		<subset name="RIGHT" color="1 0 1 1" state="393216">
-			<vertices>6 3 2</vertices>
+			<vertices>6</vertices>
 			<edges>5 4</edges>
 		</subset>
 		<subset name="LEFT" color="1 1 0 1" state="393216">
-			<vertices>4 1 0</vertices>
+			<vertices>4</vertices>
 			<edges>1 0</edges>
 		</subset>
 	</subset_handler>
@@ -32,8 +31,7 @@
 		<subset name="fixed" color="1 1 1 1" state="0"/>
 	</subset_handler>
 	<selector name="defSel">
-		<vertices>4 1 1 1 0 1</vertices>
-		<edges>1 1 0 1</edges>
+		<vertices>0 1</vertices>
 	</selector>
 </grid>
 

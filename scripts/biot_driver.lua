@@ -1,29 +1,32 @@
 ------------------------------------------------------------------------------
 --
---   Lua - Script for bio-/geomechanics
+--   Lua - Script for poroelacticity
 --
 --   Author: Arne Naegel
---           (based on solid_mechanics app by Raphael Prohl)
+--          (derived from on solid_mechanics app by Raphael Prohl)
 --
 ------------------------------------------------------------------------------
 
 ug_load_script("ug_util.lua")
+--ug_load_script("solver_util.lua")
 ug_load_script("generic.lua")
 ug_load_script("cryer.lua")
 ug_load_script("mandel.lua")
 
-local kperm = 1e-3 -- m/s
+local kperm = 1e-0 -- m/s 1e-3
 local poro = 0.2
 local nu = 0.25
 
-local EYoung = 2.0 * 1e+4 -- kPa
+local EYoung = 2.0 * 1e+4 -- kPa 2.0 * 1e+4 
 local Kmedium = EYoung/3.0*(1.0-2.0*nu)
-local Kfluid = 2.2 * 1e+6 -- kPa
+local Kfluid = 2.2 * 1e+6 -- kPa -- 2.2 * 1e+6 --
+
+
 
 print ("Kmedium = "..Kmedium)
 print ("Kfluid  = "..Kfluid)
 
-local problem = cryer2d
+local problem = cryer3d
 
 problem:init(kperm, poro, nu, 1.0/Kmedium, 1.0/Kfluid, 0.0)
 
@@ -31,23 +34,23 @@ problem:init(kperm, poro, nu, 1.0/Kmedium, 1.0/Kfluid, 0.0)
 
 local startTime  = util.GetParamNumber("-start", 0.0, "end time") 
 local endTime    = util.GetParamNumber("-end", 1e+5, "end time") 
-local dt       = util.GetParamNumber("-dt", 1e-4, "time step size")
-local dtMin    = util.GetParamNumber("-dtmin", dt*1e-4, "minimal admissible time step size")
+local dt       = util.GetParamNumber("-dt", 1e-3, "time step size")
+local dtMin    = util.GetParamNumber("-dtmin", dt*1e-2, "minimal admissible time step size")
 local dtMax    = util.GetParamNumber("-dtmax", dt*1e+3, "minimal admissible time step size")
 local dtRed    = util.GetParamNumber("-dtred", 0.5, "time step size reduction factor on divergence")
 
 
 
 
-  local charTime = problem:get_char_time()
-  print("charTime="..charTime)
+local charTime = problem:get_char_time()
+print("charTime="..charTime)
   
-  startTime = 0.0
-  endTime   = 1.0*charTime
+startTime = 0.0
+endTime   = 1.0*charTime
   
-  dt  = 1e-4*charTime
-  dtMin = 0.1*dt
-  dtMax = 0.1*endTime
+dt  = 1e-0*charTime
+dtMin = 1e-4*dt
+dtMax = 0.1*endTime
   
   
  if (problem == mandel) then 
@@ -70,7 +73,7 @@ local doTransient = true
 
 
 local dim = problem.dim
-local cpu = problem.cpu or 1
+local cpu = problem.cpu or 3
 
 -- ORDER OF ANSATZ-FUNCTIONS 
 local porder = problem.porder or 1
@@ -81,9 +84,9 @@ InitUG(dim, AlgebraType("CPU", cpu)); -- m=4 fpr block
 
 -- REFINEMENT
 -- choose number of pre-Refinements (before sending grid onto different processes)      
-local numPreRefs = util.GetParamNumber("-numPreRefs", 0)
+local numPreRefs = util.GetParamNumber("-numPreRefs", 1)
 -- choose number of total Refinements (incl. pre-Refinements)
-local numRefs = util.GetParamNumber("-numRefs", 2) --4
+local numRefs = util.GetParamNumber("-numRefs", 1) --4
 
 
 
@@ -108,40 +111,25 @@ GetLogAssistant():enable_file_output(true, "output_p_"..ProcRank()..
 local gridName = problem.gridName
 local mandatorySubsets = problem.mandatorySubsets
 
-local dom = Domain()
+
 
 -- load grid into domain
-LoadDomain(dom, gridName)
-print("Loaded domain from " .. gridName)
+--LoadDomain(dom, gridName)
+--print("Loaded domain from " .. gridName)
 
-dom = util.CreateAndDistributeDomain(gridName, numRefs, numPreRefs, mandatorySubsets)
+local dom = problem:create_domain(numRefs, numPreRefs)
 
---local refiner =  GlobalDomainRefiner(dom)
---refiner:refine();
-
-function createSphereProjector(dom)
-     -- args: dom, center, radius, eps
-     ProjectVerticesToSphere(dom, {0.0, 0.0}, 0.25, 0.05)  --
-     ProjectVerticesToSphere(dom, {0.0, 0.0}, 0.5, 0.05)  --
-     return SphericalFalloffProjector(dom, {0.0, 0.0}, 0.5, 0.05) -- For: grid, pos, center, inner_radius, outer_radius --
-end
-
-projector = createSphereProjector(dom)
-
-local refProjector = DomainRefinementProjectionHandler(dom)
---refProjector:set_callback("INNER", projector)
-SaveDomain(dom, "Sphere.ugx");
-
-SaveGridHierarchyTransformed(dom:grid(), dom:subset_handler(), "CryerSpheres.ugx", 1)
 
 --quit();
 
-
+--local refiner =  GlobalDomainRefiner(dom)
+--refiner:refine();
+--refiner:refine();
 -----------------------------------------------------------------
 --  Approximation Space
 -----------------------------------------------------------------
 
-print("Create ApproximationSpace")
+print("Create ApproximationSpace... ")
 local approxSpace = ApproximationSpace(dom) 
 approxSpace:add_fct("p", "Lagrange", porder) 
 approxSpace:add_fct("ux", "Lagrange", uorder)          
@@ -153,68 +141,30 @@ approxSpace:init_levels()
 approxSpace:init_top_surface()
 approxSpace:print_statistic()
 approxSpace:print_local_dof_statistic(2)              
-print("end approx_init")
+print("... done!")
 
 
-local domainDisc = DomainDiscretization(approxSpace)
 
---------------------------------------------------------------------------------
+
 --------------------------------------------------------------------------------
 -- Problem Setup
 --------------------------------------------------------------------------------
---------------------------------------------------------------------------------
+print("FE discretization...") 
 
+local bSteadyStateMechanics = true
+local domainDisc = DomainDiscretization(approxSpace)
+problem:add_elem_discs(domainDisc, bSteadyStateMechanics)
+problem:add_boundary_conditions(domainDisc, bSteadyStateMechanics)
 
+print("... done!")
 
-
-
--- Biot
---local rho = 1.0
---local alpha = 1.0
---local F=1.0
---local M = 1.0;
-
-
-
------------------------------------------------------------------
---  Boundary Conditions & Rhs
------------------------------------------------------------------
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
---  Setup FE Linear Element Discretization
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
-
-problem:add_elem_discs(domainDisc)
-problem:add_boundary_conditions(domainDisc)
-
------------------------------------------------------------------
--- Domain discretization
------------------------------------------------------------------
-
---[[
-myParam = TwoMaterialProblem
-myDirichletBnd = ConfinedCompressionBnd
-
-flowEqDiscs = {}
-displacementEqDiscs = {}
-
-
-for i=1,#myParam do
-	flowEqDiscs[i], displacementEqDiscs[i] = CreateElemDiscs(myParam[i])
-	domainDisc:add(flowEqDiscs[i])
-	domainDisc:add(displacementEqDiscs[i])
-end
-domainDisc:add(myDirichletBnd)
-
---]]
-print("FE discretization-setup. done.")	
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 --  Algebra
 --------------------------------------------------------------------------------
+local u = GridFunction(approxSpace)
+local dbgSmooth=u:clone()
 --------------------------------------------------------------------------------
 
 ----------------------------------------
@@ -228,8 +178,16 @@ local bgs = BackwardGaussSeidel()
 local ilu = ILU()
 --ilu:set_beta(-0.5);
 local ilut = ILUT()
---vanka = ElementGaussSeidel(0.9, "vertex")
-local vanka = ElementGaussSeidel(1.0, "element")
+ilut:set_threshold(1e-3)
+
+
+local egs = ElementGaussSeidel() -- patches per node
+
+local cgs = ComponentGaussSeidel(1.0, {"p"}) -- patches per node
+cgs:set_alpha(2.0)
+cgs:set_beta(1.0) --- 0 > 0.25  (beta=0.0: no pressure change) -- 1.0: works
+cgs:set_weights(true)
+--cgs:set_damp(0.25)
 
 -------------------------
 -- create GMG
@@ -240,7 +198,6 @@ local	dbgWriter = GridFunctionDebugWriter(approxSpace)
 	-- Base Solver
 local	baseConvCheck = ConvCheck()
 	baseConvCheck:set_maximum_steps(5000)
-	baseConvCheck:set_minimum_defect(1e-10)
 	baseConvCheck:set_reduction(1e-12)
 	baseConvCheck:set_verbose(false)
 
@@ -256,17 +213,50 @@ local	baseCG = CG()
 local	baseLU = LU()
 local	superLU = SuperLU()
 
+
+
 	-- Geometric Multi Grid
 local	gmg = GeometricMultiGrid(approxSpace)
-	gmg:set_discretization(domainDisc)
-	gmg:set_base_level(0)
-	gmg:set_base_solver(superLU)
-	gmg:set_smoother(vanka) --(jac)
-	gmg:set_cycle_type(1) -- 1:V, 2:W
-	gmg:set_num_presmooth(1)
-	gmg:set_num_postsmooth(1)
+gmg:set_discretization(domainDisc)
+gmg:set_base_level(1)  -- was 1 in Cincy 
+gmg:set_base_solver(superLU)  -- was baseLU in Cincy
+gmg:set_smoother(egs) --(jac)
+gmg:set_cycle_type("F") -- 1:V, 2:W -- "F"
+gmg:set_num_presmooth(2)
+gmg:set_num_postsmooth(2)
+gmg:set_rap(true)  -- mandatory, if set_stationary
 	--gmg:set_debug(dbgWriter)
 
+--local transfer = StdTransfer()
+--transfer:enable_p1_lagrange_optimization(false)
+--gmg:set_transfer(transfer)
+
+--------------------------------
+-- debug solver /iter
+--------------------------------
+local p0 = problem.modelParameter.p0 or 1.0
+
+local cmpConvCheck = CompositeConvCheck(approxSpace)
+cmpConvCheck:set_component_check("ux", p0*1e-7, 1e-6)
+cmpConvCheck:set_component_check("uy", p0*1e-7, 1e-6)
+if (dim==3) then
+cmpConvCheck:set_component_check("uz", p0*1e-7, 1e-6)
+end
+cmpConvCheck:set_component_check("p", p0*1e-9, 1e-6)
+cmpConvCheck:set_maximum_steps(60)
+
+local dbgSolver = LinearSolver()
+dbgSolver:set_preconditioner(gmg) -- cgs, gmg
+dbgSolver:set_convergence_check(ConvCheck(30, 1e-10, 1e-8))
+--dbgSolver:set_debug(dbgWriter)
+--dbgSolver:set_convergence_check(cmpConvCheck)
+
+local dbgIter= DebugIterator()
+dbgIter:set_preconditioner(gmg)  -- gmg is the real preconditioner
+dbgIter:set_solver(dbgSolver)
+dbgIter:set_solution(dbgSmooth)
+dbgIter:set_random_bounds(-5e-6, 5e-6)
+dbgIter:set_debug(dbgWriter)  -- print t_0 anf t_N
 
 --------------------------------
 -- create and choose a Solver
@@ -274,11 +264,14 @@ local	gmg = GeometricMultiGrid(approxSpace)
 
 local convCheck = ConvCheck()
 convCheck:set_maximum_steps(500)
-convCheck:set_reduction(1e-10) 
-convCheck:set_minimum_defect(1e-12)
+convCheck:set_reduction(1e-8) 
+convCheck:set_minimum_defect(1e-10)
+
+
+--convCheck = cmpConvCheck
 
 local iluSolver = LinearSolver()
-iluSolver:set_preconditioner(ilu)
+iluSolver:set_preconditioner(ilut)
 iluSolver:set_convergence_check(convCheck)
 
 local jacSolver = LinearSolver()
@@ -286,30 +279,34 @@ jacSolver:set_preconditioner(jac)
 jacSolver:set_convergence_check(convCheck)
 
 local gmgSolver = LinearSolver()
-gmgSolver:set_preconditioner(gmg)
+gmgSolver:set_preconditioner(dbgIter) -- gmg, dbgIter
 gmgSolver:set_convergence_check(convCheck)
 
-local cgSolver = CG()
-cgSolver:set_preconditioner(gmg) --(jac)
-cgSolver:set_convergence_check(convCheck)
-
 local bicgstabSolver = BiCGStab()
-bicgstabSolver:set_preconditioner(gmg) --(gmg)
+bicgstabSolver:set_preconditioner(dbgIter) --(gmg)
 bicgstabSolver:set_convergence_check(convCheck)
 
+local gmresSolver = GMRES(3)
+gmresSolver:set_preconditioner(gmg) -- gmg, dbgIter
+gmresSolver:set_convergence_check(convCheck)
+
+
 local luSolver = SuperLU()
+local luSolver = LinearSolver()
+luSolver:set_preconditioner(LU())
+luSolver:set_convergence_check(convCheck)
 
 -- choose a solver
 
 local lsolver = luSolver
 --solver = jacSolver
---solver = iluSolver
---solver = bicgstabSolver 
---lsolver = gmgSolver
---solver = cgSolver
+--lsolver = iluSolver
+lsolver = gmgSolver
+--lsolver = bicgstabSolver 
 
+--lsolver = gmresSolver
 
-local u = GridFunction(approxSpace)
+--lsolver:set_compute_fresh_defect_when_finished(true)
 
 local vtk=VTKOutput()
 vtk:select_nodal("p", "PNodal")
@@ -373,15 +370,19 @@ newtonCheck:set_minimum_defect(1e-7)
 newtonCheck:set_reduction(5e-6)
 newtonCheck:set_verbose(true)
 
---newtonCheck = StandardConvCheck(100, 1e-10, 5e-6)
---newtonCheck:set_component_check("ux", 1e-10, 5e-6)
---newtonCheck:set_component_check("uy", 1e-10, 5e-6)
---newtonCheck:set_component_check("p", 1e-10, 5e-6)
+local newtonCheck2 = CompositeConvCheck(approxSpace)
+newtonCheck2:set_component_check("ux",  p0*1e-7, 5e-6)
+newtonCheck2:set_component_check("uy",p0*1e-7, 5e-6)
+if (dim==3) then
+newtonCheck2:set_component_check("uz",p0*1e-7, 5e-6)
+end
+newtonCheck2:set_component_check("p", p0*1e-9, 5e-6)
+newtonCheck2:set_maximum_steps(2)
 
 local newtonSolver = NewtonSolver()
 newtonSolver:set_linear_solver(lsolver)
-newtonSolver:set_convergence_check(newtonCheck)
-newtonSolver:set_line_search(lineSearch)
+newtonSolver:set_convergence_check(newtonCheck2)
+--newtonSolver:set_line_search(lineSearch)
 --newtonSolver:set_debug(dbgWriter)
 
 local nlsolver = newtonSolver
@@ -390,28 +391,40 @@ print("Interpolation start values")
 problem:interpolate_start_values(u, startTime)
 
 
-function myPostprocessingCallback(u, step, time)
+function myStepCallback(u, step, time)
   problem:post_processing(u, step, time)
+  vtk:print("Cryer.vtu", u, step, time)
 end
 
---step = myPostprocessingCallback
-step = vtk
+
 
 
 
 print ("Integrating from 0.0 to "..endTime)
-util.SolveLinearTimeProblem(u, domainDisc, lsolver, step, "PoroElasticityTransient",
-							   "ImplEuler", 1, startTime, endTime, dt, dtmin, dtred);
+--util.SolveLinearTimeProblem(u, domainDisc, lsolver, myStepCallback, "PoroElasticityTransient",
+--							   "ImplEuler", 1, startTime, endTime, dt, dtmin, dtred);
 							   
---util.SolveNonlinearTimeProblem(u, domainDisc, nlsolver, vtk, "PoroElasticityTransient",
---						   "ImplEuler", 1, startTime, endTime, dt, dtMin, dtRed); 
+dt =dt*1e-0 -- smaller => more complicated
+print("dt="..dt/charTime)							   
+util.SolveNonlinearTimeProblem(u, domainDisc, nlsolver, myStepCallback, "PoroElasticityTransient",
+						   "ImplEuler", 1, startTime, endTime, dt, dtMin/2, dtRed); 
 						   
+local cAdaptiveStepInfo  ={
+      ["TOLERANCE"] = 2e-2, 
+      ["REDUCTION"] = 0.5, 
+      ["INCREASE"]  = 1.2, 
+      ["SAFETY"]    = 0.5,
+      ["ESTIMATOR"] = GridFunctionEstimator("p", 2) -- compare p-error (2nd order quadrature)
+}
 				   
---util.SolveNonlinearProblemAdaptiveTimestep(u, domainDisc, nlsolver, vtk, "PoroElasticityAdaptive",
---	startTime, endTime, dt, dtMin, dtMax, dtRed, timeTol)
+--util.SolveNonlinearProblemAdaptiveTimestep(u, domainDisc, nlsolver, myStepCallback, "PoroElasticityAdaptive", 
+--   startTime, endTime, dt, dtMin, dtMax, cAdaptiveStepInfo)
+						
+						
+
 						    
---util.SolveNonlinearProblemAdaptiveLimex(u, domainDisc, nlsolver, vtk, "PoroElasticityAdaptiveLimex",
---	startTime, endTime, dt, dtMin, dtMax, dtRed, timeTol)						   
+--util.SolveNonlinearProblemAdaptiveLimex(u, domainDisc, nlsolver, myStepCallback, "PoroElasticityAdaptiveLimex",
+--	startTime, endTime, dt, dtMin, dtMax, cAdaptiveStepInfo)						   
 						   
 end
 exit();

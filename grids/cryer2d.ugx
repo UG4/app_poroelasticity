@@ -11,11 +11,23 @@
 			<faces>0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23</faces>
 		</subset>
 		<subset name="RIM" color="1 0 0 1" state="393216">
-			<vertices>24 13 14 15 16 17 18 19 20 21 22 23</vertices>
+			<vertices>24 14 15 17 18 20 21 23</vertices>
 			<edges>35 24 25 26 27 28 29 30 31 32 33 34</edges>
 		</subset>
 		<subset name="CENTER" color="0 1 0 1" state="393216">
 			<vertices>0</vertices>
+		</subset>
+		<subset name="EAST" color="0 0 1 1" state="393216">
+			<vertices>16</vertices>
+		</subset>
+		<subset name="WEST" color="1 0 1 1" state="393216">
+			<vertices>22</vertices>
+		</subset>
+		<subset name="NORTH" color="1 1 0 1" state="393216">
+			<vertices>13</vertices>
+		</subset>
+		<subset name="SOUTH" color="0 1 1 1" state="393216">
+			<vertices>19</vertices>
 		</subset>
 	</subset_handler>
 	<subset_handler name="markSH">
@@ -23,7 +35,7 @@
 		<subset name="fixed" color="1 1 1 1" state="0"/>
 	</subset_handler>
 	<selector name="defSel">
-		<vertices>0 1</vertices>
+		<vertices>19 1</vertices>
 	</selector>
 </grid>
 

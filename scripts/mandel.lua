@@ -1,14 +1,8 @@
-
-
-
 -- problem definitions
-
-
-
 
 mandel = {
   
-  gridName = "../grids/mandel-aniso.ugx",
+  gridName = "../grids/mandel.ugx",
   dim = 2,
   cpu = 1,
   
@@ -26,6 +20,11 @@ mandel = {
   elemDiscParams = {}
   
 }
+
+function mandel:create_domain(numRefs, numPreRefs)
+  local dom = util.CreateAndDistributeDomain(self.gridName, numRefs, numPreRefs, self.mandatorySubsets)
+  return dom
+end
 
 function mandel:set_load(Fy)
   self.qForce = Fy
@@ -77,7 +76,7 @@ function mandel:setModelParameters_(nu_poisson, nporo, cmedium, cfluid, csolid, 
   {VOLUME = "INNER",  KAPPA = D, LAMBDA=lambda, MU = mu, ALPHA=alpha, PHI=self.modelParameter.S}
   
 
-  print ("Phi="..self.modelParameter.S)
+  print ("Phi=S="..self.modelParameter.S)
   print ("Alpha="..alpha)
   print ("Kappa="..D)
   
@@ -202,13 +201,15 @@ function MandelVertDisp(x,y,t)
   return -mandel:compute_uy(x,y,t)
 end
 
-function mandel:add_boundary_conditions(domainDisc)
+function mandel:add_boundary_conditions(domainDisc, bStationary)
 
   local neumann = NeumannBoundaryFE("ux")
   neumann:add("MandelPressure", "TOP", "INNER")
   neumann:add("MandelPressure", "BOT", "INNER")
   --neumann:add(self.modelParameter.alpha*self.flowDisc[1]:value(), "BOT", "INNER")
-  --domainDisc:add(neumann)
+  domainDisc:add(neumann)
+  
+  
 
   local dirichlet = DirichletBoundary()
   --dirichlet:add(MandelHorizDisp, "ux", "TOP, BOT")
@@ -216,19 +217,17 @@ function mandel:add_boundary_conditions(domainDisc)
   dirichlet:add(0.0, "p", "RIGHT")
   dirichlet:add(0.0, "p", "LEFT")
   domainDisc:add(dirichlet)
-  
-
 end
 
 
 
-function mandel:add_elem_discs(domainDisc)
+function mandel:add_elem_discs(domainDisc, bStationary)
   
   self.flowDisc = {}
   self.dispDisc = {}
   
   for i=1,#self.elemDiscParams do
-    self.flowDisc[i], self.dispDisc[i] = CreateElemDiscs(self.elemDiscParams[i], self.dim)
+    self.flowDisc[i], self.dispDisc[i] = CreateElemDiscs(self.elemDiscParams[i], self.dim, bStationary)
     domainDisc:add(self.flowDisc[i])
     domainDisc:add(self.dispDisc[i])
   end
@@ -242,6 +241,18 @@ function mandel:interpolate_start_values(u, startTime)
 end
 
 
+-- post processing (after each step)
+function mandel:post_processing(u, step, time)
+  local testResults = {}
+  for k=0,20 do
+    testResults[k] = self:compute_p(k/20, 0.0, time)
+    print ((self.a*k/20) .."\t"..testResults[k])
+  end
+  
+
+
+--  print ("p0:\t"..time.."\t"..time/self.charTime.."\t"..Integral(u, "p", "CENTER").."\t"..self:compute_pressure(0.0,0.0,time))
+end
 
 function mandel:create_test_data(time)
 local testResults = {}

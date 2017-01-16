@@ -17,7 +17,7 @@ local kperm = 1e-0 -- m/s 1e-3
 local poro = 0.2
 local nu = 0.25
 
-local EYoung = 2.0 * 1e+4 -- kPa 2.0 * 1e+4 
+local EYoung = 2.0 * 1e+2 -- kPa 2.0 * 1e+4 
 local Kmedium = EYoung/3.0*(1.0-2.0*nu)
 local Kfluid = 2.2 * 1e+6 -- kPa -- 2.2 * 1e+6 --
 
@@ -26,7 +26,7 @@ local Kfluid = 2.2 * 1e+6 -- kPa -- 2.2 * 1e+6 --
 print ("Kmedium = "..Kmedium)
 print ("Kfluid  = "..Kfluid)
 
-local problem = cryer3d
+local problem = mandel3d --, mandel--, cryer3d
 
 problem:init(kperm, poro, nu, 1.0/Kmedium, 1.0/Kfluid, 0.0)
 
@@ -77,7 +77,7 @@ local cpu = problem.cpu or 3
 
 -- ORDER OF ANSATZ-FUNCTIONS 
 local porder = problem.porder or 1
-local uorder = problem.uorder or 2
+local uorder = problem.uorder or (porder+1)
 
 
 InitUG(dim, AlgebraType("CPU", cpu)); -- m=4 fpr block
@@ -136,7 +136,6 @@ approxSpace:add_fct("ux", "Lagrange", uorder)
 approxSpace:add_fct("uy", "Lagrange", uorder)   
 if (dim==3) then approxSpace:add_fct("uz", "Lagrange", uorder) end
 
-
 approxSpace:init_levels()
 approxSpace:init_top_surface()
 approxSpace:print_statistic()
@@ -144,19 +143,15 @@ approxSpace:print_local_dof_statistic(2)
 print("... done!")
 
 
-
-
 --------------------------------------------------------------------------------
 -- Problem Setup
 --------------------------------------------------------------------------------
 print("FE discretization...") 
-
-local bSteadyStateMechanics = true
+local bSteadyStateMechanics = true -- true
 local domainDisc = DomainDiscretization(approxSpace)
 problem:add_elem_discs(domainDisc, bSteadyStateMechanics)
 problem:add_boundary_conditions(domainDisc, bSteadyStateMechanics)
-
-print("... done!")
+print("done!")
 
 
 --------------------------------------------------------------------------------
@@ -171,7 +166,7 @@ local dbgSmooth=u:clone()
 -- create algebraic Preconditioner
 ----------------------------------------
 local jac = Jacobi()
-jac:set_damp(0.6)
+jac:set_damp(0.66)
 local gs = GaussSeidel()
 local sgs = SymmetricGaussSeidel()
 local bgs = BackwardGaussSeidel() 
@@ -180,15 +175,21 @@ local ilu = ILU()
 local ilut = ILUT()
 ilut:set_threshold(1e-3)
 
+--local egs_weights = u:clone();
+--egs_weights:set(1.0);
+--Interpolate(0.1, egs_weights, "p")
 
 local egs = ElementGaussSeidel() -- patches per node
+egs:select_schur_cmp({"p"}, 4.0)
+egs:set_relax(0.125)
 
 local cgs = ComponentGaussSeidel(1.0, {"p"}) -- patches per node
 cgs:set_alpha(2.0)
-cgs:set_beta(1.0) --- 0 > 0.25  (beta=0.0: no pressure change) -- 1.0: works
+cgs:set_beta(0.5) --- 0 > 0.25  (beta=0.0: no pressure change) -- 1.0: works
 cgs:set_weights(true)
 --cgs:set_damp(0.25)
 
+gs = egs
 -------------------------
 -- create GMG
 -------------------------
@@ -218,14 +219,14 @@ local	superLU = SuperLU()
 	-- Geometric Multi Grid
 local	gmg = GeometricMultiGrid(approxSpace)
 gmg:set_discretization(domainDisc)
-gmg:set_base_level(1)  -- was 1 in Cincy 
-gmg:set_base_solver(superLU)  -- was baseLU in Cincy
-gmg:set_smoother(egs) --(jac)
+gmg:set_base_level(0)  -- was 1 in Cincyj
+gmg:set_base_solver(baseLU)  -- was baseLU in Cincy
+gmg:set_smoother(jac) --(jac)
 gmg:set_cycle_type("F") -- 1:V, 2:W -- "F"
 gmg:set_num_presmooth(2)
 gmg:set_num_postsmooth(2)
 gmg:set_rap(true)  -- mandatory, if set_stationary
-	--gmg:set_debug(dbgWriter)
+--gmg:set_debug(dbgWriter)
 
 --local transfer = StdTransfer()
 --transfer:enable_p1_lagrange_optimization(false)
@@ -245,14 +246,26 @@ end
 cmpConvCheck:set_component_check("p", p0*1e-9, 1e-6)
 cmpConvCheck:set_maximum_steps(60)
 
+
+local cmpConvCheck2 = CompositeConvCheck(approxSpace)
+cmpConvCheck2:set_component_check("ux", p0*1e-7, 1e-6)
+cmpConvCheck2:set_component_check("uy", p0*1e-7, 1e-6)
+if (dim==3) then
+cmpConvCheck2:set_component_check("uz", p0*1e-7, 1e-6)
+end
+cmpConvCheck2:set_component_check("p", p0*1e-9, 1e-6)
+cmpConvCheck2:set_maximum_steps(20)
+
+cmpConvCheck2 = ConvCheck(20, 1e-10, 1e-8)
+
 local dbgSolver = LinearSolver()
-dbgSolver:set_preconditioner(gmg) -- cgs, gmg
-dbgSolver:set_convergence_check(ConvCheck(30, 1e-10, 1e-8))
+dbgSolver:set_preconditioner(gs) -- cgs, gmg
+dbgSolver:set_convergence_check(cmpConvCheck2)
 --dbgSolver:set_debug(dbgWriter)
 --dbgSolver:set_convergence_check(cmpConvCheck)
 
 local dbgIter= DebugIterator()
-dbgIter:set_preconditioner(gmg)  -- gmg is the real preconditioner
+dbgIter:set_preconditioner(gmg)  -- gmg is the 'real' preconditioner
 dbgIter:set_solver(dbgSolver)
 dbgIter:set_solution(dbgSmooth)
 dbgIter:set_random_bounds(-5e-6, 5e-6)
@@ -266,8 +279,6 @@ local convCheck = ConvCheck()
 convCheck:set_maximum_steps(500)
 convCheck:set_reduction(1e-8) 
 convCheck:set_minimum_defect(1e-10)
-
-
 --convCheck = cmpConvCheck
 
 local iluSolver = LinearSolver()
@@ -292,17 +303,17 @@ gmresSolver:set_convergence_check(convCheck)
 
 
 local luSolver = SuperLU()
-local luSolver = LinearSolver()
-luSolver:set_preconditioner(LU())
-luSolver:set_convergence_check(convCheck)
+--local luSolver = LinearSolver()
+--luSolver:set_preconditioner(LU())
+--luSolver:set_convergence_check(convCheck)
 
 -- choose a solver
 
 local lsolver = luSolver
 --solver = jacSolver
 --lsolver = iluSolver
-lsolver = gmgSolver
---lsolver = bicgstabSolver 
+--lsolver = gmgSolver
+lsolver = bicgstabSolver 
 
 --lsolver = gmresSolver
 
@@ -381,7 +392,7 @@ newtonCheck2:set_maximum_steps(2)
 
 local newtonSolver = NewtonSolver()
 newtonSolver:set_linear_solver(lsolver)
-newtonSolver:set_convergence_check(newtonCheck2)
+newtonSolver:set_convergence_check(newtonCheck)
 --newtonSolver:set_line_search(lineSearch)
 --newtonSolver:set_debug(dbgWriter)
 
@@ -404,7 +415,7 @@ print ("Integrating from 0.0 to "..endTime)
 --util.SolveLinearTimeProblem(u, domainDisc, lsolver, myStepCallback, "PoroElasticityTransient",
 --							   "ImplEuler", 1, startTime, endTime, dt, dtmin, dtred);
 							   
-dt =dt*1e-0 -- smaller => more complicated
+dt =dt*1e-4 -- smaller => more complicated
 print("dt="..dt/charTime)							   
 util.SolveNonlinearTimeProblem(u, domainDisc, nlsolver, myStepCallback, "PoroElasticityTransient",
 						   "ImplEuler", 1, startTime, endTime, dt, dtMin/2, dtRed); 

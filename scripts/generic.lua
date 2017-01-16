@@ -11,7 +11,6 @@ function CreateElemDiscs(param, dim, bSteadyState)
   if (dim==2) then displacementEqDisc = SmallStrainMechanics("ux,uy", param["VOLUME"]) end
   if (dim==3) then displacementEqDisc = SmallStrainMechanics("ux,uy,uz", param["VOLUME"]) end
  
-
   if doSteadyState then displacementEqDisc:set_stationary() end  -- do not scale with tau?
 
   
@@ -43,14 +42,10 @@ function CreateElemDiscs(param, dim, bSteadyState)
   flowEqDisc:set_mass_scale(param["PHI"]); -- 1.0/M = S 
   flowEqDisc:set_diffusion(param["KAPPA"]);
 
+
+  -- adjust quadrature order
   if (porder==1) then flowEqDisc:set_quad_order(2) end
   if (uorder==1) then displacementEqDisc:set_quad_order(2) end
-
-  
-  -- print info
-
-
-
 
   if dim == 3 then
     --if (order == 1) then
@@ -72,12 +67,10 @@ function CreateElemDiscs(param, dim, bSteadyState)
     --  end
   end
   
+    -- print info
   --print(flowEqDisc:config_string())
+  
   print(displacementEqDisc:config_string())
-
-  --massLinker = ScaleAddLinkerNumber()
-  --massLinker:add(rho/M, flowEqDisc:value())
-  --massLinker:add(rho*alpha, displacementEqDisc:divergence())
 
 return flowEqDisc, displacementEqDisc 
 

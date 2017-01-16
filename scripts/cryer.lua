@@ -1,5 +1,4 @@
 
-
 cryer2d = {
 
   gridName = "../grids/cryer2d.ugx",
@@ -21,7 +20,7 @@ cryer2d = {
 }
 
 
-
+-- Neumann boundary (2D)
 function Cryer2dBndX(x,y,t)
   return 1.0*x/math.sqrt(x*x+y*y)
 end
@@ -30,7 +29,18 @@ function Cryer2dBndY(x,y,t)
   return 1.0*y/math.sqrt(x*x+y*y)
 end
 
+-- Neumann boundary (3D)
+function Cryer3dBndX(x,y,z,t)
+  return 1.0*x/math.sqrt(x*x+y*y+z*z)
+end
 
+function Cryer3dBndY(x,y,z,t)
+  return 1.0*y/math.sqrt(x*x+y*y+z*z)
+end
+
+function Cryer3dBndY(x,y,z,t)
+  return 1.0*z/math.sqrt(x*x+y*y+z*z)
+end
 
 local function CryerSetModelParameters_(self, nu_poisson, nporo, cmedium, cfluid, csolid, D)
 
@@ -264,9 +274,14 @@ function cryer2d:post_processing(u, step, time)
 end
 
 
+---------------------------------------------
+--
+-- 3D problem
+--
+---------------------------------------------
 cryer3d = {
  
-  gridName = "../grids/cryer3d.ugx",
+  gridName = "../grids/cryer3d-flat.ugx",
   dim = 3,
   cpu = 1,
   
@@ -323,7 +338,7 @@ function cryer3d:create_domain(numRefs, numPreRefs)
   if numRefs > 0 then
     refiner = GlobalDomainRefiner(dom)
      -- NEW: set callback
-    refiner:set_refinement_callback(self.refinementProjector)
+   -- refiner:set_refinement_callback(self.refinementProjector)
   end
   
  

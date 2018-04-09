@@ -1,9 +1,57 @@
+generic = {}
+
+function CreateMassMatrixDiscs(param, dim)
+
+  print ("...for subset "..param.VOLUME)
+  
+  local theta = param.THETA or 0.0   -- this is: alpha^2/K
+  print ("theta= "..theta)  
+  
+  local massEqDisc = ConvectionDiffusion("p", param["VOLUME"], "fv1")
+  massEqDisc:set_mass_scale(theta)
+  
+  return massEqDisc;
+end
+
+
+function CreatePoissonMatrixDiscs(param, dim)
+
+  print ("...for subset "..param["VOLUME"])
+  
+  local schurEqDisc = ConvectionDiffusion("p", param["VOLUME"], "fv1")
+  schurEqDisc:set_diffusion(param["THETA"])
+  schurEqDisc:set_stationary()
+
+  return schurEqDisc;  
+end
+
+--[[
+  \partial_t (PHI * p + ALPHA div(u) ) + \nabla \cdot [-KAPPA \nabla p] = f
+  \nabla \cdot [SIGMA-ALPHA*p*Id] = 0,        SIGMA  := func(LAMBDA, MU)
+  
+  
+  param["LAMBDA"] 
+  param["MU"]
+  param["ALPHA"]
+  param["PHI"]
+  param["KAPPA"]
+--]]
+
 function CreateElemDiscs(param, dim, bSteadyState)
 
---param["ALPHA"] = 0.0  --debugging
   local doSteadyState = bSteadyState or false
   -- define eqns for pressure,  displacement
-  print (" "..param["VOLUME"])
+  print ("...for subset "..param["VOLUME"])
+  
+  -- elasticity
+  print("=> const_lambda = "..param["LAMBDA"])
+  print("=> const_mu     = "..param["MU"])
+  
+  
+  print("=> const_alpha  = "..param["ALPHA"])
+  print("=> const_Phi    = "..param["PHI"])
+  print("=> const_kappa  = "..param["KAPPA"])
+  
   
   local flowEqDisc = ConvectionDiffusion("p", param["VOLUME"], "fe")
   
@@ -12,49 +60,51 @@ function CreateElemDiscs(param, dim, bSteadyState)
   if (dim==3) then displacementEqDisc = SmallStrainMechanics("ux,uy,uz", param["VOLUME"]) end
  
   if doSteadyState then displacementEqDisc:set_stationary() end  -- do not scale with tau?
-
   
-  -- specify eqn (for displacement)
+  -- specify displacement eq (for u)
   local matLaw = HookeLaw()
   matLaw:set_hooke_elasticity_tensor(param["LAMBDA"], param["MU"])  -- corresponds to plane strain in 2D
   displacementEqDisc:set_material_law(matLaw)
   displacementEqDisc:set_mass_scale(0.0)
 
-  local forceLinker = ScaleAddLinkerVector()
-  forceLinker:add(-param["ALPHA"], flowEqDisc:gradient())
-  displacementEqDisc:set_volume_forces(forceLinker)
- 
---[[ 
-  local presLinker = ScaleAddLinkerNumber()
-  presLinker:add(param["ALPHA"], flowEqDisc:value()) 
-  displacementEqDisc:set_div_factor(presLinker)
---]]
+  if (false) then
+    -- tested
+    local forceLinker = ScaleAddLinkerVector()
+    forceLinker:add(-param["ALPHA"], flowEqDisc:gradient())
+    displacementEqDisc:set_volume_forces(forceLinker)
+  else
+    -- more natural
+    local divLinker = ScaleAddLinkerNumber()
+    divLinker:add(param["ALPHA"], flowEqDisc:value())
+    displacementEqDisc:set_div_factor(divLinker)
+  end
 
-  --mechOut = MechOutputWriter()
-  --displacementEqDisc:set_output_writer(mechOut)
-  --displacementEqDisc:displacement()
-
-  -- specify flow eqn (for pressure)
+  -- specify flow eq (for pressure)
   local compressionLinker = ScaleAddLinkerNumber()
   compressionLinker:add(param["ALPHA"], displacementEqDisc:divergence())
+  --compressionLinker:add(param["PHI"], flowEqDisc:value())
  
   flowEqDisc:set_mass(compressionLinker);
-  flowEqDisc:set_mass_scale(param["PHI"]); -- 1.0/M = S 
+  flowEqDisc:set_mass_scale(param["PHI"]);  -- Storativity 1.0/M = S 
   flowEqDisc:set_diffusion(param["KAPPA"]);
 
 
   -- adjust quadrature order
-  if (porder==1) then flowEqDisc:set_quad_order(2) end
-  if (uorder==1) then displacementEqDisc:set_quad_order(2) end
+  if (dim==2) then
+  
+    if (porder==1) then flowEqDisc:set_quad_order(4) end
+    if (uorder==2) then displacementEqDisc:set_quad_order(4) end
+  --  displacementEqDisc:set_quad_order(5)
 
-  if dim == 3 then
+
+  elseif (dim == 3) then
     --if (order == 1) then
     --  displacementEqDisc:set_quad_order(2)  
     --3:#ip`s: 6, 2:#ip`s: 8 
     --end
     if (uorder == 2) then
-    displacementEqDisc:set_quad_order(7)  -- 7
-    flowEqDisc:set_quad_order(7) --7
+    displacementEqDisc:set_quad_order(5)  -- 7
+    flowEqDisc:set_quad_order(3) --7
     --#ip`s: 31
     end
     --if (order == 3) then  
@@ -74,4 +124,34 @@ function CreateElemDiscs(param, dim, bSteadyState)
 
 return flowEqDisc, displacementEqDisc 
 
+end
+
+
+-- Creates discretization for stiffneff matrix
+function CommonAddElemDiscs(self, domainDisc, bStationary)
+  
+  self.flowDisc = {}
+  self.dispDisc = {}
+  
+  
+  -- use generic.lua
+  for i=1,#self.elemDiscParams do
+    self.flowDisc[i], self.dispDisc[i] = CreateElemDiscs(self.elemDiscParams[i], self.dim, bStationary)
+    domainDisc:add(self.flowDisc[i])
+    domainDisc:add(self.dispDisc[i])
+
+  end
+end
+
+
+-- Creates discretization for mass matrix
+function CommonAddMassMatrixDiscs(self, domainDisc)
+
+  self.massDisc = {}
+
+  -- use generic.lua
+  for i=1,#self.elemDiscParams do
+    self.massDisc[i] = CreateMassMatrixDiscs(self.elemDiscParams[i], self.dim)
+    domainDisc:add(self.massDisc[i])
+  end
 end

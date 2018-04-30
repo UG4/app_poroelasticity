@@ -1,0 +1,15 @@
+ set terminal cairolatex pdf monochrome
+ set terminal pdf 
+
+set logscale x
+set output 'p0.pdf'
+plot "p02.txt" using 3:5 with lines t 'Reference', "p02.txt" using 3:4 t '2nd order', "p03.txt" using 3:4 t '3rd order',  "p04.txt" using 3:4 t '4th order'
+
+set xrange[0.0001:2]
+set output 'p0-error.pdf'
+plot "p02.txt" using 3:($4-$5) t '2nd order', "p03.txt" using 3:($4-$5) t '3rd order',  "p04.txt" using 3:($4-$5) t '4th order'
+
+set output 'accepted.pdf'
+unset xrange
+ set logscale y
+ plot "accepting2.txt" using 2:4, "accepting4.txt" using 2:4,  "accepting3.txt" using 2:4

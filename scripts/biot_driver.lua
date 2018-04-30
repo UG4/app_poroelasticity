@@ -11,26 +11,38 @@ ug_load_script("ug_util.lua")
 ug_load_script("plugins/Limex/limex_util.lua")
 ug_load_script("generic.lua")
 ug_load_script("cryer.lua")
-ug_load_script("mandel.lua")
+-- ug_load_script("mandel.lua")
 
 
 -- TIMES AND TIME-STEPPING
 local startTime  = util.GetParamNumber("--start", 0.0, "end time") 
 local endTime    = util.GetParamNumber("--end", 1e+5, "end time") 
-local dtFrac         = util.GetParamNumber("--dtFrac", 1e-5, "time step size")
-local dtMinFrac      = util.GetParamNumber("--dtminFrac", 1e-2, "minimal admissible time step size")
-local dtMaxFrac      = util.GetParamNumber("--dtmaxFrac", 0.1, "minimal admissible time step size (as fraction of tend)")
+local dtFrac     = util.GetParamNumber("--dtFrac", 1e-5, "time step size")
+local dtMinFrac  = util.GetParamNumber("--dtminFrac", 1e-2, "minimal admissible time step size")
+local dtMaxFrac  = util.GetParamNumber("--dtmaxFrac", 0.1, "minimal admissible time step size (as fraction of tend)")
 local dtRed      = util.GetParamNumber("--dtred", 0.5, "time step size reduction factor on divergence")
 
 
 -- REFINEMENT
-local numPreRefs = util.GetParamNumber("--numPreRefs", 0, "number of pre-Refinements (before distributing grid)")
-local numRefs    = util.GetParamNumber("--num-refs", 3, "total number of refinements (incl. pre-Refinements)") --4 -- 
+local numPreRefs   = util.GetParamNumber("--numPreRefs", 0, "number of pre-Refinements (before distributing grid)")
+local numRefs      = util.GetParamNumber("--num-refs", 3, "total number of refinements (incl. pre-Refinements)") --4 -- 
 
 
--- LIMEX
-local limexTOL    = util.GetParamNumber("--limex-tol", 1e-3, "TOL")
-local limexNStages    = util.GetParamNumber("--limex-num-stages", 4, "number of LIMEX stages q")
+
+local params = {
+  problemID = util.GetParam("--problem-id", "deleeuw2d"), -- cryer3d‚
+  solverID =  util.GetParam("--solver-id", "UzawaMGKrylov"),  --  "FixedStressEX", "UzawaMG", "UzawaSmoother","UzawaMGKrylov"
+
+ 
+  MGCycleType = util.GetParam("--mg-cycle-type", "W", "V,F,W"),
+  MGBaseLevel = util.GetParamNumber("--mg-base-level", 0, "some non-negative integer"),  
+  MGNumSmooth = util.GetParamNumber("--mg-num-smooth", 3, "some positive integer"), 
+  MGSmootherType =  util.GetParam("--mg-smoother-type", "uzawa", "uzawa,cgs"),
+  
+  -- LIMEX
+  LimexTOL     = util.GetParamNumber("--limex-tol", 1e-3, "TOL"),
+  LimexNStages = util.GetParamNumber("--limex-num-stages", 4, "number of LIMEX stages q"),
+}
 
 
 
@@ -46,7 +58,16 @@ local Kfluid  = 2.2 * 1e+6                  -- kPa -- 2.2 * 1e+6 --
 print ("Kmedium = "..Kmedium)
 print ("Kfluid  = "..Kfluid)
 
-local problem = deleeuw2d --deleeuw2d--deleeuw2d -- cryer3d --cryer2d -- mandel3d --, mandel--, cryer3d
+--deleeuw2d--deleeuw2d -- cryer3d --cryer2d -- mandel3d --, mandel--, cryer3d
+local problemList = {
+  ["deleeuw2d"] = deleeuw2d,
+  ["deleeuw3d"] = deleeuw3d,
+  ["deleeuw3dTet"] = deleeuw3dTet,
+  ["cryer3d"] = cryer3d,
+  ["cryer3dTet"] = cryer3dTet,
+}
+
+local problem = problemList[params.problemID]
 problem:init(kperm, poro, nu, 1.0/Kmedium, 1.0/Kfluid, 0.0)
 
 local charTime = problem:get_char_time()
@@ -184,7 +205,7 @@ egs:select_schur_cmp({"p"}, 4.0)
 egs:set_relax(0.125)
 
 local cgs = ComponentGaussSeidel(1.0, {"p"}) -- patches per node
-cgs:set_alpha(2.0)
+cgs:set_alpha(1.0)
 cgs:set_beta(1.0) --- 0 > 0.25  (beta=0.0: no pressure change) -- 1.0: works
 cgs:set_weights(true)
 
@@ -210,7 +231,7 @@ function createUzawaIteration(sSchurCmp, aiForward, aiSchur, aiBackward, uzawaSc
   if (aiBackward) then uzawa:set_backward_iter(aiBackward)  end
 
   uzawa:set_schur_operator_update(uzawaSchurUpdateOp, weight)
-  uzawa:set_debug(dbgWriter)
+  -- uzawa:set_debug(dbgWriter)
   
   return uzawa
 end
@@ -224,6 +245,22 @@ local uzawaBackward = createUzawaIteration("p", nil, Jacobi(0.66), bgs, uzawaSch
 local uzawaSym = createUzawaIteration("p", gs, sgs, bgs, uzawaSchurUpdateOp, uzawaWeight)
 --local uzawaBackward = createUzawaIteration("p", nil, Jacobi(0.5), Jacobi(0.66), uzawaSchurOp, uzawaWeight)
 local uzawa = uzawaForward
+
+
+
+local preSmoother
+local postSmoother
+
+if (params.MGSmootherType == "uzawa") then
+  preSmoother = uzawaForward
+  postSmoother = uzawaBackward
+elseif (params.MGSmootherType == "cgs") then
+  preSmoother = cgs
+  postSmoother = cgs
+else
+  quit()
+
+end
 
 -------------------------
 -- create GMG
@@ -248,19 +285,16 @@ local	baseLU = LU()
 local	superLU = SuperLU()
 
 
-
 	-- Geometric Multi Grid
 local	gmg = GeometricMultiGrid(approxSpace)
 gmg:set_discretization(domainDisc)
-gmg:set_base_level(0)  -- was 1 in Cincy
+gmg:set_base_level(params.MGBaseLevel)  -- was 1 in Cincy
 gmg:set_base_solver(baseLU)  -- was baseLU in Cincy
-gmg:set_presmoother(uzawaForward) --(jac)
-gmg:set_postsmoother(uzawaBackward) 
--- gmg:set_smoother(cgs)  --
---gmg:set_smoother(uzawaSym) 
-gmg:set_cycle_type("F") -- 1:V, 2:W -- "F"
-gmg:set_num_presmooth(3)
-gmg:set_num_postsmooth(3)
+gmg:set_presmoother(preSmoother) --(jac)
+gmg:set_postsmoother(postSmoother) 
+gmg:set_cycle_type(params.MGCycleType) -- 1:V, 2:W -- "F"
+gmg:set_num_presmooth(params.MGNumSmooth)
+gmg:set_num_postsmooth(params.MGNumSmooth)
 gmg:set_rap(true)  -- mandatory, if set_stationary
 --gmg:set_debug(dbgWriter)
 
@@ -349,13 +383,17 @@ solver["UzawaSmoother"] = LinearSolver()
 solver["UzawaSmoother"]:set_preconditioner(uzawaForward)
 solver["UzawaSmoother"]:set_convergence_check(convCheck)
 
-solver["fixedStressEX"] = BiCGStab()
-solver["fixedStressEX"]:set_preconditioner(fixedStressLU)
-solver["fixedStressEX"]:set_convergence_check(convCheck)
-
 solver["UzawaMG"] = LinearSolver()
 solver["UzawaMG"]:set_preconditioner(gmg) -- gmg, dbgIter
 solver["UzawaMG"]:set_convergence_check(convCheck) -- cmpConvCheck
+
+solver["FixedStressEX"] = BiCGStab()
+solver["FixedStressEX"]:set_preconditioner(fixedStressLU)
+solver["FixedStressEX"]:set_convergence_check(convCheck)
+
+solver["UzawaMGKrylov"] = BiCGStab()
+solver["UzawaMGKrylov"]:set_preconditioner(gmg) -- gmg, dbgIter
+solver["UzawaMGKrylov"]:set_convergence_check(convCheck) -- cmpConvCheck
 
 local bicgstabSolver = BiCGStab()
 bicgstabSolver:set_preconditioner(dbgIter) --(gmg)
@@ -376,13 +414,8 @@ local luSolver = LinearSolver()
 luSolver:set_preconditioner(LU())
 luSolver:set_convergence_check(convCheck)
 
--- choose a solver
-
-local solverID = "fixedStressEX"
-solverID = "UzawaMG"
--- solverID="UzawaSmoother"
-
-local lsolver = solver[solverID]
+-- Select solver.
+local lsolver = solver[params.solverID]
 --solver = jacSolver
 --lsolver = iluSolver
 --lsolver = gmgSolver
@@ -491,12 +524,12 @@ newtonCheck:set_supress_unsuccessful(true)
 -- Create & configure LIMEX
 -- LIMEX descriptor.
 local limexDesc = {
-  nstages = limexNStages,
+  nstages = params.LimexNStages,
   steps = {1,2,3,4,5,6,7,8,9,10},
   domainDisc=domainDisc,
  
   nonlinSolver = nlsolver,
-  tol = limexTOL,
+  tol = params.LimexTOL,
   dt = dt,
   dtmin = dtMin,
   dtmax = dtMax,
@@ -520,7 +553,7 @@ limex:disable_matrix_cache()        -- This problem is linear
 
 -- Create observers.
 local vtkFull = VTKOutput()
-local vtkobserver = VTKOutputObserver("Cryer.vtk", vtkFull)
+local vtkobserver = VTKOutputObserver("PoroElasticityTransient.vtk", vtkFull)
 
 local luaobserver = LuaCallbackObserver()
 function myLuaPostProcess(step, time, currdt)

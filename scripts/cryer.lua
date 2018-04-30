@@ -12,6 +12,17 @@ function Sphere2dNormalY(x,y,t)
   return 1.0*y/math.sqrt(x*x+y*y)
 end
 
+
+-- Neumann boundary (3D)
+function Cylinder3dNormalX(x,y,z,t)
+  return 1.0*x/math.sqrt(x*x+y*y)
+end
+
+function Cylinder3dNormalY(x,y,z,t)
+  return 1.0*y/math.sqrt(x*x+y*y)
+end
+
+
 -- Neumann boundary (3D)
 function Sphere3dNormalX(x,y,z,t)
   return 1.0*x/math.sqrt(x*x+y*y+z*z)
@@ -136,7 +147,7 @@ end
     else return f end
 end 
 
-function DeLeeuw.SetModelParameters(self, nporo, nu_poisson, dCmedium, dCfluid, dCsolid, D)
+function DeLeeuw.SetModelParameters(self, nporo, nu_poisson, dCmedium, dCfluid, dCsolid, kappa, dim)
 
   -- lower case: non dimensional
   local nu      = nu_poisson or 0.25
@@ -169,7 +180,7 @@ function DeLeeuw.SetModelParameters(self, nporo, nu_poisson, dCmedium, dCfluid, 
   
   
   -- diffuson
-  self.modelParameter.kappa = D
+  self.modelParameter.kappa = kappa
   
   -- elasticity parameters
   self.modelParameter.nu0   = nu;                     -- Poisson's ratio
@@ -190,17 +201,17 @@ function DeLeeuw.SetModelParameters(self, nporo, nu_poisson, dCmedium, dCfluid, 
  -- self.modelParameter.eps0 = self.qForce/(alpha + KS/alpha)
   self.modelParameter.p0 = self.qForce/(alpha + KS/alpha)  -- initial pore pressure
   
+  local Kdim = {}
+   Kdim[1] = Kv
+   Kdim[2] = Kv/(2.0-2.0*nu)
+   Kdim[3] = 1.0/CMedium
   
-  local K1d = Kv
-  local K2d = Kv/(2.0-2.0*nu)
-  local K3d = 1.0/CMedium
-  
-  print("Kd="..K1d..", "..K2d..", "..K3d)
+  print("Kd="..Kdim[1]..", "..Kdim[2]..", "..Kdim[3])
   
   self.elemDiscParams = {}
   self.elemDiscParams[1] =
  -- { VOLUME = "INNER",  KAPPA = D, LAMBDA=lambda, MU = G, ALPHA=alpha, PHI=self.modelParameter.S, THETA=(alpha*alpha)*CMedium }
-  { VOLUME = "INNER",  KAPPA = D, LAMBDA=lambda, MU = G, ALPHA=alpha, PHI=self.modelParameter.S, THETA=(alpha*alpha)/K2d}
+  { VOLUME = "INNER",  KAPPA = kappa, LAMBDA=lambda, MU = G, ALPHA=alpha, PHI=self.modelParameter.S, THETA=(alpha*alpha)/Kdim[dim]}
 
   
   
@@ -331,7 +342,7 @@ function DeLeeuw.ComputePressure(self, x, t)
 end
 
 local Cryer ={}
-function Cryer.SetModelParameters(self, nporo, nu_poisson, dCmedium, dCfluid, dCsolid, D)
+function Cryer.SetModelParameters(self, nporo, nu_poisson, dCmedium, dCfluid, dCsolid, kappa, dim)
 
   -- lower case: non dimensional
   local nu      = nu_poisson or 0.25
@@ -379,13 +390,17 @@ function Cryer.SetModelParameters(self, nporo, nu_poisson, dCmedium, dCfluid, dC
   
   local Kv = 2.0*G*(1.0-nu)/(1.0-2.0*nu)                                -- uni-axial drained bulk modulus 
   self.modelParameter.Kv = Kv
-  local K1d = Kv
-  local K2d = Kv/(2.0-2.0*nu)
-  local K3d = 1.0/CMedium
+  
+  local Kdim = {}
+  Kdim[1] = Kv
+  Kdim[2] = Kv/(2.0-2.0*nu)
+  Kdim[3] = 1.0/CMedium
+
+ print("Kd="..Kdim[1]..", "..Kdim[2]..", "..Kdim[3])
 
   self.elemDiscParams = {}
   self.elemDiscParams[1] =
-  { VOLUME = "INNER",  KAPPA = D, LAMBDA=lambda, MU = G, ALPHA=alpha, PHI=self.modelParameter.S, THETA=(alpha*alpha)/K3d}
+  { VOLUME = "INNER",  KAPPA = kappa, LAMBDA=lambda, MU = G, ALPHA=alpha, PHI=self.modelParameter.S, THETA=(alpha*alpha)/Kdim[dim]}
   
   print ("Phi="..self.modelParameter.S)
   print ("K="..self.modelParameter.K)
@@ -393,7 +408,7 @@ function Cryer.SetModelParameters(self, nporo, nu_poisson, dCmedium, dCfluid, dC
   print ("lambda="..lambda)
   print ("mu="..self.modelParameter.G)
   print ("Alpha="..alpha)
-  print ("Kappa="..D)
+  print ("Kappa="..kappa)
   print ("P0="..self.modelParameter.p0)
   
   
@@ -478,7 +493,7 @@ end
 --]]
 function cryer2d:init(kperm, nporo, nu, cmedium, cfluid, csolid, gamma_f)
   gamma_f = gamma_f or 1.0 -- kg/m^3
-  Cryer.SetModelParameters(self, nporo, nu, cmedium, cfluid, csolid, kperm*gamma_f)
+  Cryer.SetModelParameters(self, nporo, nu, cmedium, cfluid, csolid, kperm*gamma_f, self.dim)
   Cryer.InitRoots(self)
   self.charTime = self:get_char_time(); 
   print ("charTime="..self.charTime)
@@ -627,7 +642,7 @@ end
 
 function deleeuw2d:init(kperm, nporo, nu, cmedium, cfluid, csolid, gamma_f)
   gamma_f = gamma_f or 1.0 -- kg/m^3
-  DeLeeuw.SetModelParameters(self, nporo, nu, cmedium, cfluid, csolid, kperm*gamma_f)
+  DeLeeuw.SetModelParameters(self, nporo, nu, cmedium, cfluid, csolid, kperm*gamma_f, self.dim)
   DeLeeuw.InitRoots(self, self.n_approx)
   self.charTime = self:get_char_time(); 
   DeLeeuw.PrintModelParameters(self)
@@ -742,6 +757,209 @@ function deleeuw2d:post_processing(u, step, time)
 end
 
 
+
+deleeuw3d = {
+
+  -- gridName = "../grids/cryer3d-with-projectorb.ugx",
+  gridName = "../grids/cryer3d-noprojector.ugx",
+  dim = 3,
+  cpu = 1,
+  
+  porder = 1,
+  uorder = 2, -- should be 2
+  mandatorySubsets ={"INNER"},
+  
+  a = 0.5, 
+  qForce = 1.0,
+  
+  n_approx = 100,
+  
+  modelParameter = {},
+  elemDiscParams = {}
+
+}
+
+function deleeuw3d:create_domain(numRefs, numPreRefs)
+  local dom = util.CreateAndDistributeDomain(self.gridName, numRefs, numPreRefs, self.mandatorySubsets)
+  return dom
+end
+
+
+function deleeuw3d:init(kperm, nporo, nu, cmedium, cfluid, csolid, gamma_f)
+  gamma_f = gamma_f or 1.0 -- kg/m^3
+  DeLeeuw.SetModelParameters(self, nporo, nu, cmedium, cfluid, csolid, kperm*gamma_f, self.dim)
+  DeLeeuw.InitRoots(self, self.n_approx)
+  self.charTime = self:get_char_time(); 
+  DeLeeuw.PrintModelParameters(self)
+  print ("charTime="..self.charTime)
+end
+
+-- characteristic time
+function deleeuw3d:get_char_time()
+ return DeLeeuw.GetCharTime(self)
+end
+
+
+function deleeuw3d:add_elem_discs(domainDisc, bStationary)
+  CommonAddElemDiscs(self, domainDisc, bStationary)
+end
+
+function deleeuw3d:add_uzawa_discs(domainDisc)
+  CommonAddMassMatrixDiscs(self, domainDisc)
+end
+
+
+function deleeuw3d:add_boundary_conditions(domainDisc, bStationary)
+  
+  
+local doStationary = bStationary or false
+
+local neumannX = NeumannBoundaryFE("ux")
+ neumannX:add("Cylinder3dNormalX", "RIM", "INNER")
+  
+ local neumannY = NeumannBoundaryFE("uy")
+ neumannY:add("Cylinder3dNormalY", "RIM", "INNER")
+ 
+ if doStationary then 
+    neumannX:set_stationary()
+    neumannY:set_stationary() 
+  end
+ 
+ domainDisc:add(neumannX)
+ domainDisc:add(neumannY)
+ 
+  local dirichlet = DirichletBoundary()
+  dirichlet:add(0.0, "p", "RIM,EAST,WEST,NORTH,SOUTH")
+
+  dirichlet:add(0.0, "ux", "CENTER")
+  dirichlet:add(0.0, "uy", "CENTER")
+  
+  dirichlet:add(0.0, "uz", "TOP")
+  dirichlet:add(0.0, "uz", "BOT")
+  
+  domainDisc:add(dirichlet)
+ 
+end
+
+
+
+-- initial values
+function deleeuw3d:interpolate_start_values(u, startTime)
+  Interpolate(self.modelParameter.p0, u, "p", startTime)
+  Interpolate(0.0, u, "ux", startTime)
+  Interpolate(0.0, u, "uy", startTime)
+end
+
+
+-- post processing (after each step)
+function deleeuw3d:post_processing(u, step, time)
+  print ("p0:\t"..time.."\t"..time/self.charTime.."\t"..(Integral(u, "p", "CENTER")/self.modelParameter.p0).."\t"..DeLeeuw.ComputePressure(self, 0.0, time))
+end
+
+
+
+
+deleeuw3dTet = {
+
+  -- gridName = "../grids/cryer3d-with-projectorb.ugx",
+  gridName = "../grids/deleeuw3d-cylinder-tet.ugx",
+  dim = 3,
+  cpu = 1,
+  
+  porder = 1,
+  uorder = 2, -- should be 2
+  mandatorySubsets ={"INNER"},
+  
+  a = 0.5, 
+  qForce = 1.0,
+  
+  n_approx = 100,
+  
+  modelParameter = {},
+  elemDiscParams = {}
+
+}
+
+function deleeuw3dTet:create_domain(numRefs, numPreRefs)
+  local dom = util.CreateAndDistributeDomain(self.gridName, numRefs, numPreRefs, self.mandatorySubsets)
+  return dom
+end
+
+
+function deleeuw3dTet:init(kperm, nporo, nu, cmedium, cfluid, csolid, gamma_f)
+  gamma_f = gamma_f or 1.0 -- kg/m^3
+  DeLeeuw.SetModelParameters(self, nporo, nu, cmedium, cfluid, csolid, kperm*gamma_f, self.dim)
+  DeLeeuw.InitRoots(self, self.n_approx)
+  self.charTime = self:get_char_time(); 
+  DeLeeuw.PrintModelParameters(self)
+  print ("charTime="..self.charTime)
+end
+
+-- characteristic time
+function deleeuw3dTet:get_char_time()
+ return DeLeeuw.GetCharTime(self)
+end
+
+
+function deleeuw3dTet:add_elem_discs(domainDisc, bStationary)
+  CommonAddElemDiscs(self, domainDisc, bStationary)
+end
+
+function deleeuw3dTet:add_uzawa_discs(domainDisc)
+  CommonAddMassMatrixDiscs(self, domainDisc)
+end
+
+
+function deleeuw3dTet:add_boundary_conditions(domainDisc, bStationary)
+  
+  
+local doStationary = bStationary or false
+
+local neumannX = NeumannBoundaryFE("ux")
+ neumannX:add("Cylinder3dNormalX", "RIM", "INNER")
+  
+ local neumannY = NeumannBoundaryFE("uy")
+ neumannY:add("Cylinder3dNormalY", "RIM", "INNER")
+ 
+ if doStationary then 
+    neumannX:set_stationary()
+    neumannY:set_stationary() 
+  end
+ 
+ domainDisc:add(neumannX)
+ domainDisc:add(neumannY)
+ 
+  local dirichlet = DirichletBoundary()
+  dirichlet:add(0.0, "p", "RIM")
+
+  dirichlet:add(0.0, "ux", "CENTER")
+  dirichlet:add(0.0, "uy", "CENTER")
+  dirichlet:add(0.0, "uz", "CENTER")
+  
+  dirichlet:add(0.0, "uz", "TOP")
+  dirichlet:add(0.0, "uz", "BOT")
+  dirichlet:add(0.0, "uz", "RIM")
+  
+  domainDisc:add(dirichlet)
+ 
+end
+
+
+
+-- initial values
+function deleeuw3dTet:interpolate_start_values(u, startTime)
+  Interpolate(self.modelParameter.p0, u, "p", startTime)
+  Interpolate(0.0, u, "ux", startTime)
+  Interpolate(0.0, u, "uy", startTime)
+end
+
+
+-- post processing (after each step)
+function deleeuw3dTet:post_processing(u, step, time)
+  print ("p0:\t"..time.."\t"..time/self.charTime.."\t"..(Integral(u, "p", "CENTER")/self.modelParameter.p0).."\t"..DeLeeuw.ComputePressure(self, 0.0, time))
+end
+
+
 ---------------------------------------------
 --
 -- 3D problem
@@ -760,7 +978,7 @@ cryer3d = {
   a = 1.0, 
   qForce = 1.0,
   
-  n_approx = 500,
+  n_approx = 110,
   
   modelParameter = {},
   elemDiscParams = {}
@@ -820,7 +1038,7 @@ end
 -- init all variables
 function cryer3d:init(kperm, nporo, nu, cmedium, cfluid, csolid, volumetricweight)
   volumetricweight = volumetricweight or 1.0 -- kg/m^3
-  Cryer.SetModelParameters(self, nporo, nu, cmedium, cfluid, csolid, kperm*volumetricweight)
+  Cryer.SetModelParameters(self, nporo, nu, cmedium, cfluid, csolid, kperm*volumetricweight, self.dim)
   Cryer.InitRoots(self)
   self.charTime = self:get_char_time(); 
   print ("charTime="..self.charTime)
@@ -840,5 +1058,101 @@ end
 
 -- Post processing (after each step)
 function cryer3d:post_processing(u, step, time)
+  print ("p0:\t"..time.."\t"..time/self.charTime.."\t"..(Integral(u, "p", "CENTER")/self.modelParameter.p0).."\t"..Cryer.ComputePressure(self, time))
+end
+
+cryer3dTet = {
+ 
+  gridName = "../grids/cryer3d-sphere-tet.ugx",
+  dim = 3,
+  cpu = 1,
+  
+  porder = 1,
+  uorder = 2,
+  mandatorySubsets ={"INNER", "SPHERE"},
+  
+  a = 1.0, 
+  qForce = 1.0,
+  
+  n_approx = 110,
+  
+  modelParameter = {},
+  elemDiscParams = {}
+
+}
+
+
+function cryer3dTet:create_domain(numRefs, numPreRefs)
+  local dom = util.CreateAndDistributeDomain(self.gridName, numRefs, numPreRefs, self.mandatorySubsets)
+  return dom
+end
+
+
+function cryer3dTet:add_elem_discs(domainDisc, bStationary)
+  CommonAddElemDiscs(self, domainDisc, bStationary)
+end
+
+
+function cryer3dTet:add_uzawa_discs(domainDisc)
+  CommonAddMassMatrixDiscs(self, domainDisc)
+end
+
+--- Boundary conditions.
+function cryer3dTet:add_boundary_conditions(domainDisc, bStationary)
+  
+  
+ local doStationary = bStationary or false
+
+ local neumannX = NeumannBoundaryFE("ux")
+ local neumannY = NeumannBoundaryFE("uy")
+ local neumannZ = NeumannBoundaryFE("uz")
+ 
+ neumannX:add("Sphere3dNormalX", "SPHERE", "INNER")
+ neumannY:add("Sphere3dNormalY", "SPHERE", "INNER")
+ neumannZ:add("Sphere3dNormalZ", "SPHERE", "INNER")
+ 
+ if doStationary then 
+    neumannX:set_stationary()
+    neumannY:set_stationary() 
+    neumannZ:set_stationary() 
+ end
+ 
+ domainDisc:add(neumannX)
+ domainDisc:add(neumannY)
+ domainDisc:add(neumannZ)
+
+  local dirichlet = DirichletBoundary()
+  dirichlet:add(0.0, "p", "SPHERE")
+  dirichlet:add(0.0, "ux", "CENTER")
+  dirichlet:add(0.0, "uy", "CENTER")
+  dirichlet:add(0.0, "uz", "CENTER")
+
+  domainDisc:add(dirichlet)
+ 
+end
+
+-- init all variables
+function cryer3dTet:init(kperm, nporo, nu, cmedium, cfluid, csolid, volumetricweight)
+  volumetricweight = volumetricweight or 1.0 -- kg/m^3
+  Cryer.SetModelParameters(self, nporo, nu, cmedium, cfluid, csolid, kperm*volumetricweight, self.dim)
+  Cryer.InitRoots(self)
+  self.charTime = self:get_char_time(); 
+  print ("charTime="..self.charTime)
+end
+
+function cryer3dTet:get_char_time()
+ return Cryer.GetCharTime(self)
+end
+
+-- Initial values.
+function cryer3dTet:interpolate_start_values(u, startTime)
+  Interpolate(self.modelParameter.p0, u, "p", startTime)
+  Interpolate(0.0, u, "ux", startTime)
+  Interpolate(0.0, u, "uy", startTime)
+  Interpolate(0.0, u, "uz", startTime)
+end
+
+-- Post processing (after each step)
+function cryer3dTet:post_processing(u, step, time)
   print ("p0:\t"..time.."\t"..time/self.charTime.."\t"..(Integral(u, "p", "CENTER")/self.modelParameter.p0).."\t"..Cryer.ComputePressure(self, time))
 end

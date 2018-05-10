@@ -289,7 +289,7 @@ local	superLU = SuperLU()
 local	gmg = GeometricMultiGrid(approxSpace)
 gmg:set_discretization(domainDisc)
 gmg:set_base_level(params.MGBaseLevel)  -- was 1 in Cincy
-gmg:set_base_solver(baseLU)  -- was baseLU in Cincy
+gmg:set_base_solver(superLU)  -- was baseLU in Cincy
 gmg:set_presmoother(preSmoother) --(jac)
 gmg:set_postsmoother(postSmoother) 
 gmg:set_cycle_type(params.MGCycleType) -- 1:V, 2:W -- "F"
@@ -368,7 +368,7 @@ local solver = {}
 local convCheck = ConvCheck()
 convCheck:set_maximum_steps(500)
 convCheck:set_reduction(1e-8) 
-convCheck:set_minimum_defect(1e-10)
+convCheck:set_minimum_defect(1e-16)
 --convCheck = cmpConvCheck
 
 local iluSolver = LinearSolver()
@@ -480,6 +480,8 @@ newtonSolver:set_convergence_check(newtonCheck)
 --newtonSolver:set_debug(dbgWriter)
 
 local nlsolver = newtonSolver
+
+print(lsolver:config_string())
 
 print("Interpolation start values")
 problem:interpolate_start_values(u, startTime)

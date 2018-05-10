@@ -8,9 +8,15 @@
 ------------------------------------------------------------------------------
 
 ug_load_script("ug_util.lua")
+ug_load_script("util/load_balancing_util_2.lua") 
+ug_load_script("util/profiler_util.lua")
 ug_load_script("plugins/Limex/limex_util.lua")
 ug_load_script("generic.lua")
 ug_load_script("cryer.lua")
+
+
+
+
 -- ug_load_script("mandel.lua")
 
 
@@ -120,12 +126,46 @@ GetLogAssistant():set_debug_level("SchurDebug", 7);
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
+
+ balancerDesc = {
+    hierarchy = {
+        --type = "standard",
+       -- maxRedistProcs = params.redistProcs,
+        
+        -- minElemsPerProcPerLevel = params.minElemsPerProcPerLevel,
+        -- qualityRedistLevelOffset = params.qualityRedistLevelOffset,
+        -- intermediateRedistributions = params.intermediateRedistributions,
+        
+        type            = "standard",
+        minElemsPerProcPerLevel   = 32,
+        maxRedistProcs        = 120,
+        qualityRedistLevelOffset  = 2,
+        intermediateRedistributions = true,
+        
+        {
+          upperLvl = 0,
+          maxRedistProcs = 40
+        },
+
+        {
+          upperLvl = 2,
+          maxRedistProcs = 120
+        },
+      }
+} -- balancerDesc
+   
+
+
+
+
 -- Create, Load, Refine and Distribute Domain
 
-local gridName = problem.gridName
-local mandatorySubsets = problem.mandatorySubsets
+-- local gridName = problem.gridName
+-- local dom = problem:create_domain(numRefs, numPreRefs)
 
-local dom = problem:create_domain(numRefs, numPreRefs)
+local mandatorySubsets = problem.mandatorySubsets
+local dom = util.CreateDomain(problem.gridName, 0, mandatorySubsets)
+util.refinement.CreateRegularHierarchy(dom, numRefs, true, balancerDesc)
 
 
 --local refiner =  GlobalDomainRefiner(dom)
@@ -299,7 +339,7 @@ gmg:set_rap(true)  -- mandatory, if set_stationary
 --gmg:set_debug(dbgWriter)
 
 local gmgP = GeometricMultiGrid(approxSpace)
-gmgP:set_discretization(domainDisc)
+-- gmgP:set_discretization(domainDiscP)
 gmgP:set_base_level(numPreRefs)  -- was 1 in Cincyj
 gmgP:set_base_solver(baseLU)  -- was baseLU in Cincy
 gmgP:set_presmoother(sgs) 
@@ -308,12 +348,24 @@ gmgP:set_cycle_type("V") -- 1:V, 2:W -- "F"
 gmgP:set_num_presmooth(3)
 gmgP:set_num_postsmooth(3)
 gmgP:set_rap(true)  -- mandatory, if set_stationary
+
+
+local gmgU = GeometricMultiGrid(approxSpace)
+-- gmgU:set_discretization(domainDiscU)
+gmgU:set_base_level(numPreRefs)  -- was 1 in Cincyj
+gmgU:set_base_solver(baseLU)  -- was baseLU in Cincy
+gmgU:set_presmoother(sgs) 
+gmgU:set_postsmoother(sgs) 
+gmgU:set_cycle_type("V") -- 1:V, 2:W -- "F"
+gmgU:set_num_presmooth(3)
+gmgU:set_num_postsmooth(3)
+gmgU:set_rap(true)  -- mandatory, if set_stationary
 --gmg:set_debug(dbgWriter)
 
 local uzawaTotal       = createUzawaIteration("p", ILUT(1e-8), ILUT(1e-8), nil, uzawaSchurUpdateOp, 1.0)      -- ???
  
 local fixedStressLU = createUzawaIteration("p", nil, ILUT(1e-12), ILUT(1e-12), uzawaSchurUpdateOp, 1.0)
-local fixedStressMG    = createUzawaIteration("p", nil, ILUT(1e-12), ILUT(1e-12), uzawaSchurUpdateOp, 1.0)
+local fixedStressMG    = createUzawaIteration("p", nil, gmgU, gmgP, uzawaSchurUpdateOp, 1.0)
 
 
 --local transfer = StdTransfer()
@@ -390,6 +442,11 @@ solver["UzawaMG"]:set_convergence_check(convCheck) -- cmpConvCheck
 solver["FixedStressEX"] = BiCGStab()
 solver["FixedStressEX"]:set_preconditioner(fixedStressLU)
 solver["FixedStressEX"]:set_convergence_check(convCheck)
+
+solver["FixedStressMG"] = BiCGStab()
+solver["FixedStressMG"]:set_preconditioner(fixedStressMG)
+solver["FixedStressMG"]:set_convergence_check(convCheck)
+
 
 solver["UzawaMGKrylov"] = BiCGStab()
 solver["UzawaMGKrylov"]:set_preconditioner(gmg) -- gmg, dbgIter
@@ -480,6 +537,8 @@ newtonSolver:set_convergence_check(newtonCheck)
 --newtonSolver:set_debug(dbgWriter)
 
 local nlsolver = newtonSolver
+
+print(lsolver:config_string())
 
 print("Interpolation start values")
 problem:interpolate_start_values(u, startTime)

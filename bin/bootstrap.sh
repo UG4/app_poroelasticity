@@ -8,7 +8,7 @@ function biot_exec {
 
 mkdir $1
 cd $1
-ugsubmit $NUMPROCS --- ugshell -ex poroelasticity/scripts/biot_driver.lua --limex-num-stages $2 --limex-num-stages $2 --limex-tol $LIMEX_TOL --num-refs $NUMREFS
+ugsubmit $NUMPROCS --- ugshell -ex poroelasticity/scripts/biot_driver.lua --limex-num-stages $2 --limex-tol $LIMEX_TOL --num-refs $NUMREFS
 cd ..
 
 }

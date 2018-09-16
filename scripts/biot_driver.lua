@@ -12,9 +12,10 @@ ug_load_script("util/load_balancing_util_2.lua")
 ug_load_script("util/profiler_util.lua")
 ug_load_script("plugins/Limex/limex_util.lua")
 ug_load_script("generic.lua")
+
 ug_load_script("cryer.lua")
-
-
+ug_load_script("footing.lua")
+ug_load_script("barry_mercer.lua")
 
 
 -- ug_load_script("mandel.lua")
@@ -35,22 +36,27 @@ local numRefs      = util.GetParamNumber("--num-refs", 3, "total number of refin
 
 
 
-local params = {
+local ARGS = {
   problemID = util.GetParam("--problem-id", "deleeuw2d"), -- cryer3d‚
-  solverID =  util.GetParam("--solver-id", "UzawaMGKrylov"),  --  "FixedStressEX", "UzawaMG", "UzawaSmoother","UzawaMGKrylov"
+  solverID =  util.GetParam("--solver-id", "UzawaMG"),  --  "FixedStressEX", "UzawaMG", "UzawaSmoother","UzawaMGKrylov"
 
+  useVTK =  util.HasParamOption("--with-vtk", "Plot VTK"),
+  useDebugIter =  util.HasParamOption("--with-debug-iter", "Activate debug solver."),
+  -- doCheck =  util.HasParamOption("--with-check", ""),
  
   MGCycleType = util.GetParam("--mg-cycle-type", "W", "V,F,W"),
   MGBaseLevel = util.GetParamNumber("--mg-base-level", 0, "some non-negative integer"),  
-  MGNumSmooth = util.GetParamNumber("--mg-num-smooth", 3, "some positive integer"), 
+  MGNumSmooth = util.GetParamNumber("--mg-num-smooth", 2, "some positive integer"), 
   MGSmootherType =  util.GetParam("--mg-smoother-type", "uzawa", "uzawa,cgs"),
   
   -- LIMEX
   LimexTOL     = util.GetParamNumber("--limex-tol", 1e-3, "TOL"),
   LimexNStages = util.GetParamNumber("--limex-num-stages", 4, "number of LIMEX stages q"),
+  
+  
 }
 
-
+print ("MGSmootherType="..ARGS.MGSmootherType)
 
 -- Set parameters
 local kperm   = 1e-0 -- m/s 1e-3
@@ -71,9 +77,20 @@ local problemList = {
   ["deleeuw3dTet"] = deleeuw3dTet,
   ["cryer3d"] = cryer3d,
   ["cryer3dTet"] = cryer3dTet,
+  ["footing2D"] = footing2D,
+  ["footing2D_tri"] = footing2D_tri,
+  ["footing3D"] = footing3D,
+  
+  ["bm2D_tri"] = barrymercer2D_tri,
 }
 
-local problem = problemList[params.problemID]
+local problem = problemList[ARGS.problemID]
+if (not problem) then 
+  print ("ERROR: Problem '".. ARGS.problemID.. "' not found") 
+  quit()
+end
+
+problem:parse_cmd_args()
 problem:init(kperm, poro, nu, 1.0/Kmedium, 1.0/Kfluid, 0.0)
 
 local charTime = problem:get_char_time()
@@ -96,7 +113,7 @@ local dtMax = endTime
  end 
 
 
-local doSteadyState = true
+local doSteadyState = false
 local doTransient = true
 
 ----------------------------------
@@ -127,14 +144,14 @@ GetLogAssistant():set_debug_level("SchurDebug", 7);
 --------------------------------------------------------------------------------
 
 
- balancerDesc = {
+local balancerDesc = {
     hierarchy = {
         --type = "standard",
-       -- maxRedistProcs = params.redistProcs,
+       -- maxRedistProcs = ARGS.redistProcs,
         
-        -- minElemsPerProcPerLevel = params.minElemsPerProcPerLevel,
-        -- qualityRedistLevelOffset = params.qualityRedistLevelOffset,
-        -- intermediateRedistributions = params.intermediateRedistributions,
+        -- minElemsPerProcPerLevel = ARGS.minElemsPerProcPerLevel,
+        -- qualityRedistLevelOffset = ARGS.qualityRedistLevelOffset,
+        -- intermediateRedistributions = ARGS.intermediateRedistributions,
         
         type            = "standard",
         minElemsPerProcPerLevel   = 32,
@@ -168,6 +185,8 @@ local dom = util.CreateDomain(problem.gridName, 0, mandatorySubsets)
 util.refinement.CreateRegularHierarchy(dom, numRefs, true, balancerDesc)
 
 
+
+
 --local refiner =  GlobalDomainRefiner(dom)
 --refiner:refine();
 --refiner:refine();
@@ -194,6 +213,7 @@ end
 approxSpace:init_levels()
 approxSpace:init_top_surface()
 approxSpace:print_statistic()
+approxSpace:print_layout_statistic()
 approxSpace:print_local_dof_statistic(2)              
 print("... done!")
 
@@ -203,9 +223,14 @@ print("... done!")
 --------------------------------------------------------------------------------
 print("FE discretization...") 
 local bSteadyStateMechanics = true -- true
-local domainDisc = DomainDiscretization(approxSpace)
-problem:add_elem_discs(domainDisc, bSteadyStateMechanics)
-problem:add_boundary_conditions(domainDisc, bSteadyStateMechanics)
+local domainDisc0 = DomainDiscretization(approxSpace)
+problem:add_elem_discs(domainDisc0, bSteadyStateMechanics)
+problem:add_boundary_conditions(domainDisc0, bSteadyStateMechanics)
+
+
+local domainDiscT = DomainDiscretization(approxSpace)
+problem:add_elem_discs(domainDiscT, bSteadyStateMechanics)
+problem:add_boundary_conditions(domainDiscT, bSteadyStateMechanics)
 
 local uzawaSchurUpdateDisc = DomainDiscretization(approxSpace)
 problem:add_uzawa_discs(uzawaSchurUpdateDisc)
@@ -250,6 +275,17 @@ cgs:set_beta(1.0) --- 0 > 0.25  (beta=0.0: no pressure change) -- 1.0: works
 cgs:set_weights(true)
 
 
+local ssc_vanka_space
+if (dim == 2) then
+ ssc_vanka_space = VertexCenteredVankaSubspace2dCPU1({"p"}, {"ux", "uy"})
+else
+ ssc_vanka_space = VertexCenteredVankaSubspace3dCPU1({"p"}, {"ux", "uy", "uz"})
+end
+
+
+local ssc = SequentialSubspaceCorrection(1.0)
+ssc:set_vertex_subspace(ssc_vanka_space)
+
 local dbgWriter = GridFunctionDebugWriter(approxSpace)
 local uzawaSchurUpdateOp = AssembledLinearOperator()
 uzawaSchurUpdateOp:set_discretization(uzawaSchurUpdateDisc)
@@ -280,6 +316,21 @@ local uzawaWeight = 1.0
 local uzawaForward = createUzawaIteration("p", gs, Jacobi(0.66), nil, uzawaSchurUpdateOp, uzawaWeight)
 local uzawaBackward = createUzawaIteration("p", nil, Jacobi(0.66), bgs, uzawaSchurUpdateOp, uzawaWeight)
 
+local uzawaForward2 = createUzawaIteration("p", SymmetricGaussSeidel(), Jacobi(0.66), nil, uzawaSchurUpdateOp, uzawaWeight)
+local uzawaBackward2 = createUzawaIteration("p", nil, Jacobi(0.66), SymmetricGaussSeidel(), uzawaSchurUpdateOp, uzawaWeight)
+
+local uzawaForward2 = createUzawaIteration("p", SymmetricGaussSeidel(), SymmetricGaussSeidel(), nil, uzawaSchurUpdateOp, uzawaWeight)
+local uzawaBackward2 = createUzawaIteration("p", nil, SymmetricGaussSeidel(), SymmetricGaussSeidel(), uzawaSchurUpdateOp, uzawaWeight)
+
+--[[
+local pi=LinearIteratorProduct()
+pi:add_iterator(SymmetricGaussSeidel())
+pi:add_iterator(SymmetricGaussSeidel())
+
+local uzawaForward2 = createUzawaIteration("p", pi, SymmetricGaussSeidel(), nil, uzawaSchurUpdateOp, uzawaWeight)
+local uzawaBackward2 = createUzawaIteration("p", nil, SymmetricGaussSeidel(), pi, uzawaSchurUpdateOp, uzawaWeight)
+--]]
+
 --local uzawaForward = createUzawaIteration("p", Jacobi(0.66), Jacobi(0.66), nil, uzawaSchurUpdateOp, uzawaWeight)
 --local uzawaBackward = createUzawaIteration("p", nil, Jacobi(0.66), Jacobi(0.66), uzawaSchurUpdateOp, uzawaWeight)
 local uzawaSym = createUzawaIteration("p", gs, sgs, bgs, uzawaSchurUpdateOp, uzawaWeight)
@@ -291,15 +342,20 @@ local uzawa = uzawaForward
 local preSmoother
 local postSmoother
 
-if (params.MGSmootherType == "uzawa") then
+if (ARGS.MGSmootherType == "uzawa") then
   preSmoother = uzawaForward
   postSmoother = uzawaBackward
-elseif (params.MGSmootherType == "cgs") then
+elseif (ARGS.MGSmootherType == "uzawa2") then
+  preSmoother = uzawaForward2
+  postSmoother = uzawaBackward2
+elseif (ARGS.MGSmootherType == "cgs") then
   preSmoother = cgs
   postSmoother = cgs
+elseif (ARGS.MGSmootherType == "vanka-ssc") then
+  preSmoother = ssc
+  postSmoother = ssc
 else
   quit()
-
 end
 
 -------------------------
@@ -308,17 +364,17 @@ end
 
 -- Base Solver
 local	baseConvCheck = ConvCheck()
-	baseConvCheck:set_maximum_steps(5000)
-	baseConvCheck:set_reduction(1e-12)
-	baseConvCheck:set_verbose(false)
+baseConvCheck:set_maximum_steps(5000)
+baseConvCheck:set_reduction(1e-12)
+baseConvCheck:set_verbose(false)
 
 local	base = BiCGStab()
-	base:set_preconditioner(jac)
-	base:set_convergence_check(baseConvCheck)
+base:set_preconditioner(jac)
+base:set_convergence_check(baseConvCheck)
 	
 local	baseCG = CG()
-	baseCG:set_preconditioner(jac)
-	baseCG:set_convergence_check(baseConvCheck)
+baseCG:set_preconditioner(jac)
+baseCG:set_convergence_check(baseConvCheck)
 	
 	-- exact base solver
 local	baseLU = LU()
@@ -327,16 +383,23 @@ local	superLU = SuperLU()
 
 	-- Geometric Multi Grid
 local	gmg = GeometricMultiGrid(approxSpace)
-gmg:set_discretization(domainDisc)
-gmg:set_base_level(params.MGBaseLevel)  -- was 1 in Cincy
+gmg:set_discretization(domainDiscT)
+gmg:set_base_level(ARGS.MGBaseLevel)  -- was 1 in Cincy
 gmg:set_base_solver(superLU)  -- was baseLU in Cincy
 gmg:set_presmoother(preSmoother) --(jac)
 gmg:set_postsmoother(postSmoother) 
-gmg:set_cycle_type(params.MGCycleType) -- 1:V, 2:W -- "F"
-gmg:set_num_presmooth(params.MGNumSmooth)
-gmg:set_num_postsmooth(params.MGNumSmooth)
-gmg:set_rap(true)  -- mandatory, if set_stationary
---gmg:set_debug(dbgWriter)
+gmg:set_cycle_type(ARGS.MGCycleType) -- 1:V, 2:W -- "F"
+gmg:set_num_presmooth(ARGS.MGNumSmooth)
+gmg:set_num_postsmooth(ARGS.MGNumSmooth)
+gmg:set_rap(problem.bRAP or true)  -- mandatory, if set_stationary
+-- gmg:set_debug(dbgWriter)
+
+
+
+local transfer = StdTransfer()
+transfer:enable_p1_lagrange_optimization(true)
+--transfer:set_debug(dbgWriter)
+gmg:set_transfer(transfer)
 
 local gmgP = GeometricMultiGrid(approxSpace)
 -- gmgP:set_discretization(domainDiscP)
@@ -360,11 +423,12 @@ gmgU:set_cycle_type("V") -- 1:V, 2:W -- "F"
 gmgU:set_num_presmooth(3)
 gmgU:set_num_postsmooth(3)
 gmgU:set_rap(true)  -- mandatory, if set_stationary
---gmg:set_debug(dbgWriter)
+gmgU:set_debug(dbgWriter)
 
 local uzawaTotal       = createUzawaIteration("p", ILUT(1e-8), ILUT(1e-8), nil, uzawaSchurUpdateOp, 1.0)      -- ???
- 
-local fixedStressLU = createUzawaIteration("p", nil, ILUT(1e-12), ILUT(1e-12), uzawaSchurUpdateOp, 1.0)
+local fixedStressLU    = createUzawaIteration("p", nil, ILUT(1e-12), ILUT(1e-12), uzawaSchurUpdateOp, 1.0)
+local fixedStressSuperLU    = createUzawaIteration("p", nil, SuperLU(), SuperLU(), uzawaSchurUpdateOp, 1.0)
+-- local fixedStressLU    = createUzawaIteration("p", nil, SuperLU(), SuperLU(), uzawaSchurUpdateOp, 1.0)
 local fixedStressMG    = createUzawaIteration("p", nil, gmgU, gmgP, uzawaSchurUpdateOp, 1.0)
 
 
@@ -383,9 +447,9 @@ cmpConvCheck:set_component_check("uy", p0*1e-14, 1e-6)
 if (dim==3) then
 cmpConvCheck:set_component_check("uz", p0*1e-14, 1e-6)
 end
-cmpConvCheck:set_component_check("p", p0*1e-11, 1e-6)
-cmpConvCheck:set_maximum_steps(60)
-
+cmpConvCheck:set_component_check("p", p0*1e-14, 1e-6)
+cmpConvCheck:set_maximum_steps(100)
+cmpConvCheck:set_supress_unsuccessful(true)
 
 local cmpConvCheck2 = CompositeConvCheck(approxSpace)
   cmpConvCheck2:set_component_check("ux", p0*1e-12, 1e-6)
@@ -396,10 +460,10 @@ end
 cmpConvCheck2:set_component_check("p", p0*1e-12, 1e-6)
 cmpConvCheck2:set_maximum_steps(50)
 
-cmpConvCheck2 = ConvCheck(2, 1e-10, 1e-8)
+cmpConvCheck2 = ConvCheck(50, 1e-25, 1e-20)
 
 local dbgSolver = LinearSolver()
-dbgSolver:set_preconditioner(uzawa) -- cgs, gmg, uzawa
+dbgSolver:set_preconditioner(gmg) -- cgs, gmg, uzawa
 dbgSolver:set_convergence_check(cmpConvCheck2)
 --dbgSolver:set_debug(dbgWriter)
 --dbgSolver:set_convergence_check(cmpConvCheck)
@@ -418,10 +482,10 @@ dbgIter:set_debug(dbgWriter)  -- print t_0 anf t_N
 local solver = {}
 
 local convCheck = ConvCheck()
-convCheck:set_maximum_steps(500)
+convCheck:set_maximum_steps(30)
 convCheck:set_reduction(1e-8) 
 convCheck:set_minimum_defect(1e-16)
---convCheck = cmpConvCheck
+convCheck = cmpConvCheck  -- for DEBUGGING purposes
 
 local iluSolver = LinearSolver()
 iluSolver:set_preconditioner(ilut)
@@ -432,37 +496,45 @@ jacSolver:set_preconditioner(jac)
 jacSolver:set_convergence_check(convCheck)
 
 solver["UzawaSmoother"] = LinearSolver()
-solver["UzawaSmoother"]:set_preconditioner(uzawaForward)
+solver["UzawaSmoother"]:set_preconditioner(uzawaForward2)
 solver["UzawaSmoother"]:set_convergence_check(convCheck)
 
 solver["UzawaMG"] = LinearSolver()
 solver["UzawaMG"]:set_preconditioner(gmg) -- gmg, dbgIter
 solver["UzawaMG"]:set_convergence_check(convCheck) -- cmpConvCheck
 
-solver["FixedStressEX"] = BiCGStab()
-solver["FixedStressEX"]:set_preconditioner(fixedStressLU)
-solver["FixedStressEX"]:set_convergence_check(convCheck)
-
-solver["FixedStressMG"] = BiCGStab()
-solver["FixedStressMG"]:set_preconditioner(fixedStressMG)
-solver["FixedStressMG"]:set_convergence_check(convCheck)
-
-
 solver["UzawaMGKrylov"] = BiCGStab()
 solver["UzawaMGKrylov"]:set_preconditioner(gmg) -- gmg, dbgIter
 solver["UzawaMGKrylov"]:set_convergence_check(convCheck) -- cmpConvCheck
 
+
+solver["FixedStressEX"] = LinearSolver()
+solver["FixedStressEX"]:set_preconditioner(fixedStressSuperLU)
+solver["FixedStressEX"]:set_convergence_check(convCheck)
+
+solver["FixedStressEXKrylov"] = BiCGStab()
+solver["FixedStressEXKrylov"]:set_preconditioner(fixedStressSuperLU)
+solver["FixedStressEXKrylov"]:set_convergence_check(convCheck)
+
+
+solver["FixedStressMG"] = LinearSolver() -- BiCGStab()
+solver["FixedStressMG"]:set_preconditioner(fixedStressMG)
+solver["FixedStressMG"]:set_convergence_check(convCheck)
+
+local myIter = gmg
+if (ARGS.useDebugIter) then myIter =  dbgIter end
+
 local bicgstabSolver = BiCGStab()
-bicgstabSolver:set_preconditioner(dbgIter) --(gmg)
+bicgstabSolver:set_preconditioner(myIter) --(gmg)
 bicgstabSolver:set_convergence_check(convCheck)
 
 local cgSolver = CG()
-cgSolver:set_preconditioner(dbgIter) --(gmg)
+cgSolver:set_preconditioner(myIter) --(gmg)
 cgSolver:set_convergence_check(convCheck)
 
 
 local gmresSolver = GMRES(3)
-gmresSolver:set_preconditioner(gmg) -- gmg, dbgIter
+gmresSolver:set_preconditioner(myIter) -- gmg, dbgIter
 gmresSolver:set_convergence_check(convCheck)
 
 local sluSolver = SuperLU()
@@ -472,12 +544,12 @@ luSolver:set_preconditioner(LU())
 luSolver:set_convergence_check(convCheck)
 
 -- Select solver.
-local lsolver = solver[params.solverID]
+local lsolver = solver[ARGS.solverID]
 --solver = jacSolver
 --lsolver = iluSolver
 --lsolver = gmgSolver
 --lsolver = cgSolver
---lsolver = bicgstabSolver 
+lsolver = bicgstabSolver 
 --lsolver = gmresSolver
 --lsolver:set_compute_fresh_defect_when_finished(true)
 -- lsolver = sluSolver
@@ -492,16 +564,21 @@ if (dim == 3) then vtk:select({"ux", "uy", "uz"}, "uNodal") end
 --vtk:select_element( flowEqDisc:gradient()dbgSolver, "GradP")
 --vtk:select(massLinker, "Mass")
 
-
-
 -- Init error estimator.
-local biotErrorEst = ScaledGridFunctionEstimator()
-biotErrorEst:add(L2ComponentSpace("p", 2))        -- L2 norm for p, 2nd order quadrature
---[[ 
-biotErrorEst:add(H1ComponentSpace("ux", 4))  
-biotErrorEst:add(H1ComponentSpace("uy", 4)) 
-if (dim==3) then biotErrorEst:add(H1ComponentSpacer("uz", 4)) end
---]]
+local biotErrorEst 
+--if (false) then
+if (problem.error_estimator) then
+  biotErrorEst = problem:error_estimator()
+else
+  biotErrorEst = ScaledGridFunctionEstimator()
+  biotErrorEst:add(L2ComponentSpace("p", 2))        -- L2 norm for p, 2nd order quadrature
+  -- [[ 
+  biotErrorEst:add(H1SemiComponentSpace("ux", 4))  
+  biotErrorEst:add(H1SemiComponentSpace("uy", 4)) 
+  if (dim==3) then biotErrorEst:add(H1SemiComponentSpace("uz", 4)) end
+  --]]
+end
+
 
 
 --------------------------------------------------------------------------------
@@ -540,55 +617,52 @@ local nlsolver = newtonSolver
 
 print(lsolver:config_string())
 
+if (problem.check) then problem:check(u) end
+
 print("Interpolation start values")
 problem:interpolate_start_values(u, startTime)
 
 
-function myStepCallback(u, step, time)
+
+-- Create callback.
+function myStepCallback0(u, step, time)
   problem:post_processing(u, step, time)
-  vtk:print("Cryer.vtu", u, step, time)
+  vtk:print("PoroElasticityStd.vtu", u, step, time)
 end
 
 print ("Integrating from 0.0 to "..endTime)
---util.SolveLinearTimeProblem(u, domainDisc, lsolver, myStepCallback, "PoroElasticityTransient",
---							   "ImplEuler", 1, startTime, endTime, dt, dtmin, dtred);
+
 							   
 --dt =dt*1e-4*problem:get_char_time() -- smaller => more complicated
 
-dt = 1e-4*problem:get_char_time()
+dt = 1e-2*problem:get_char_time()
 dtMin = 1e-2*dt
 
-if (false) then
+if ( ARGS.LimexNStages<2) then
 
+-- STANDARD (implicit Euler) time-stepping.
 print("dt="..dt/charTime)							   
-util.SolveNonlinearTimeProblem(u, domainDisc, nlsolver, myStepCallback, "PoroElasticityTransient",
+util.SolveNonlinearTimeProblem(u, domainDisc0, nlsolver, myStepCallback0, "PoroElasticityInitial",
 						   "ImplEuler", 1, startTime, endTime, dt, dtMin/2, dtRed); 
-end
 						   
-local cAdaptiveStepInfo  ={
-      ["TOLERANCE"] = 2e-2, 
-      ["REDUCTION"] = 0.5, 
-      ["INCREASE"]  = 1.2, 
-      ["SAFETY"]    = 0.5,
-      ["ESTIMATOR"] = biotErrorEst
-}
-				   
-
-if (true) then
-
+--util.SolveLinearTimeProblem(u, domainDiscT, lsolver, myStepCallback0, "PoroElasticityTransient",
+--                 "ImplEuler", 1, startTime, endTime, dt, dtmin, dtred);						   
+else
+		   
+-- LIMEX time-stepping.
+	
 -- Adjust NEWTON for LIMEX.
 newtonCheck:set_maximum_steps(1)
 newtonCheck:set_supress_unsuccessful(true) 
 
--- Create & configure LIMEX
--- LIMEX descriptor.
+-- Create & configure LIMEX descriptor.
 local limexDesc = {
-  nstages = params.LimexNStages,
+  nstages = ARGS.LimexNStages,
   steps = {1,2,3,4,5,6,7,8,9,10},
-  domainDisc=domainDisc,
+  domainDisc=domainDiscT,
  
   nonlinSolver = nlsolver,
-  tol = params.LimexTOL,
+  tol = ARGS.LimexTOL,
   dt = dt,
   dtmin = dtMin,
   dtmax = dtMax,
@@ -604,34 +678,31 @@ limex:add_error_estimator(biotErrorEst)
 -- limex:set_time_step(dt)
 -- limex:set_dt_min(dtMin)
 -- limex:set_dt_max(dtMax)
-limex:set_stepsize_safety_factor(0.8)
+limex:set_stepsize_safety_factor(0.25)
 limex:set_stepsize_greedy_order_factor(0.0)
 
 limex:disable_matrix_cache()        -- This problem is linear
 --limex:set_time_derivative(udot)   -- 
 
--- Create observers.
-local vtkFull = VTKOutput()
-local vtkobserver = VTKOutputObserver("PoroElasticityTransient.vtk", vtkFull)
+-- Create (& attach) observers.
+if (ARGS.useVTK) then
+  local vtkFull = VTKOutput()
+  local vtkobserver = VTKOutputObserver("PoroElasticityLimex.vtk", vtkFull)
+  limex:attach_observer(vtkobserver)
+end
 
 local luaobserver = LuaCallbackObserver()
-function myLuaPostProcess(step, time, currdt)
+function myLuaLimexPostProcess(step, time, currdt)
   local usol=luaobserver:get_current_solution()
   problem:post_processing(usol, step, time)
   return 0;
 end
-
-luaobserver:set_callback("myLuaPostProcess")
-
-
--- Attach observers.
--- if (limex_output==1) then
-   limex:attach_observer(luaobserver)
-   limex:attach_observer(vtkobserver)
---end
+luaobserver:set_callback("myLuaLimexPostProcess")
+limex:attach_observer(luaobserver)
 
 
--- Solve problem with LIMEX.
+
+-- Solve problem using LIMEX.
 local myclock = CuckooClock()
 myclock:tic()
 limex:apply(u, endTime, u, startTime)
@@ -655,11 +726,11 @@ if (doSteadyState) then
   b:set(0.0)
   
   -- 1. assemble matrix and rhs
-  domainDisc:assemble_linear(A, b)
+  domainDiscT:assemble_linear(A, b)
 
   -- 2. set dirichlet values in start iterate
   u:set(0.0)
-  domainDisc:adjust_solution(u)
+  domainDiscT:adjust_solution(u)
 
   -- 3. init solver for linear Operator
   lsolver:init(A)

@@ -28,26 +28,6 @@ function inheritsFrom( baseClass )
         return baseClass
     end
 
-    -- Return true if the caller is an instance of theClass
-    function new_class:isa( theClass )
-        local b_isa = false
-
-        local cur_class = new_class
-
-        while ( nil ~= cur_class ) and ( false == b_isa ) do
-            if cur_class == theClass then
-                b_isa = true
-            else
-                cur_class = cur_class:superClass()
-            end
-        end
-
-        return b_isa
-    end
-
-    return new_class
-end
-
 ---------------------------
 -- problem definition
 ---------------------------
@@ -356,7 +336,7 @@ function mandel2d:add_boundary_conditions(domainDisc, bStationary)
 end
 
 function mandel2d:add_elem_discs(domainDisc, bStationary)
-  MandelAddElemDiscs(self, domainDisc, bStationary)
+  CommonAddElemDiscs(self, domainDisc, bStationary)
 end
 
 function mandel2d:interpolate_start_values(u, startTime)

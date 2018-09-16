@@ -206,15 +206,16 @@ function DeLeeuw.SetModelParameters(self, nporo, nu_poisson, dCmedium, dCfluid, 
    Kdim[2] = Kv/(2.0-2.0*nu)
    Kdim[3] = 1.0/CMedium
   
-  print("Kd="..Kdim[1]..", "..Kdim[2]..", "..Kdim[3])
-  
+  print("Kd="..Kdim[1]..", "..Kdim[2]..", "..Kdim[2])
+ --  alpha = 0 for DEBUGGING
   self.elemDiscParams = {}
   self.elemDiscParams[1] =
  -- { VOLUME = "INNER",  KAPPA = D, LAMBDA=lambda, MU = G, ALPHA=alpha, PHI=self.modelParameter.S, THETA=(alpha*alpha)*CMedium }
-  { VOLUME = "INNER",  KAPPA = kappa, LAMBDA=lambda, MU = G, ALPHA=alpha, PHI=self.modelParameter.S, THETA=(alpha*alpha)/Kdim[dim]}
+
+  { VOLUME = "INNER",  KAPPA = kappa, LAMBDA=lambda, MU = G, ALPHA=alpha, PHI=self.modelParameter.S, THETA=0.0075}-- THETA=(alpha*alpha)/Kdim[dim]} -- THETA=}
 
   
-  
+  print ("MassScale=".. self.elemDiscParams[1].THETA)
   
 end
 
@@ -409,6 +410,7 @@ function Cryer.SetModelParameters(self, nporo, nu_poisson, dCmedium, dCfluid, dC
   print ("mu="..self.modelParameter.G)
   print ("Alpha="..alpha)
   print ("Kappa="..kappa)
+  print ("MassScale=".. self.elemDiscParams[1].THETA)
   print ("P0="..self.modelParameter.p0)
   
   
@@ -590,7 +592,7 @@ end
 
 
 function cryer2d:add_elem_discs(domainDisc, bStationary)
-  CommonAddElemDiscs(self, domainDisc, bStationary)
+  CommonAddBiotElemDiscs(self, domainDisc, bStationary)
 end
 
 -- initial values
@@ -656,7 +658,7 @@ end
 
 
 function deleeuw2d:add_elem_discs(domainDisc, bStationary)
-  CommonAddElemDiscs(self, domainDisc, bStationary)
+  CommonAddBiotElemDiscs(self, domainDisc, bStationary)
 end
 
 function deleeuw2d:add_uzawa_discs(domainDisc)
@@ -767,6 +769,8 @@ deleeuw3d = {
   
   porder = 1,
   uorder = 2, -- should be 2
+  vStab = 0.0, 
+  
   mandatorySubsets ={"INNER"},
   
   a = 0.5, 
@@ -775,7 +779,9 @@ deleeuw3d = {
   n_approx = 100,
   
   modelParameter = {},
-  elemDiscParams = {}
+  elemDiscParams = {},
+  
+  bRAP = true,
 
 }
 
@@ -801,7 +807,12 @@ end
 
 
 function deleeuw3d:add_elem_discs(domainDisc, bStationary)
-  CommonAddElemDiscs(self, domainDisc, bStationary)
+  CommonAddBiotElemDiscs(self, domainDisc, bStationary)
+ 
+  if (self.vStab and self.vStab~= 0.0 and self.porder==self.uorder) then     -- Add stabilization?
+   print ("vStab="..self.vStab)
+    CommonAddBiotStabDiscs(self, domainDisc)   
+  end
 end
 
 function deleeuw3d:add_uzawa_discs(domainDisc)
@@ -828,11 +839,12 @@ local neumannX = NeumannBoundaryFE("ux")
  domainDisc:add(neumannX)
  domainDisc:add(neumannY)
  
-  local dirichlet = DirichletBoundary()
+  local dirichlet = DirichletBoundary(false, true)
   dirichlet:add(0.0, "p", "RIM,EAST,WEST,NORTH,SOUTH")
 
   dirichlet:add(0.0, "ux", "CENTER")
   dirichlet:add(0.0, "uy", "CENTER")
+  dirichlet:add(0.0, "uz", "CENTER")
   
   dirichlet:add(0.0, "uz", "TOP")
   dirichlet:add(0.0, "uz", "BOT")
@@ -868,6 +880,7 @@ deleeuw3dTet = {
   
   porder = 1,
   uorder = 2, -- should be 2
+  vStab = 0.0, 
   mandatorySubsets ={"INNER"},
   
   a = 0.5, 
@@ -876,7 +889,8 @@ deleeuw3dTet = {
   n_approx = 100,
   
   modelParameter = {},
-  elemDiscParams = {}
+  elemDiscParams = {},
+  bRAP = true,
 
 }
 
@@ -902,7 +916,7 @@ end
 
 
 function deleeuw3dTet:add_elem_discs(domainDisc, bStationary)
-  CommonAddElemDiscs(self, domainDisc, bStationary)
+  CommonAddBiotElemDiscs(self, domainDisc, bStationary)
 end
 
 function deleeuw3dTet:add_uzawa_discs(domainDisc)
@@ -929,7 +943,7 @@ local neumannX = NeumannBoundaryFE("ux")
  domainDisc:add(neumannX)
  domainDisc:add(neumannY)
  
-  local dirichlet = DirichletBoundary()
+  local dirichlet = DirichletBoundary(true, false) -- dirichlet columns, adjust interpolation 
   dirichlet:add(0.0, "p", "RIM")
 
   dirichlet:add(0.0, "ux", "CENTER")
@@ -951,6 +965,23 @@ function deleeuw3dTet:interpolate_start_values(u, startTime)
   Interpolate(self.modelParameter.p0, u, "p", startTime)
   Interpolate(0.0, u, "ux", startTime)
   Interpolate(0.0, u, "uy", startTime)
+end
+
+
+-- create error estimator
+function deleeuw3dTet:error_estimator()
+  local p = self.elemDiscParams[1]
+  local gamma2 = (p.LAMBDA+2*p.MU)*(p.LAMBDA+2*p.MU)
+  print("deleeuw3dTet:error_estimator: gamma="..gamma2)
+  
+  local biotErrorEst = CompositeGridFunctionEstimator()
+        
+  biotErrorEst:add(H1SemiComponentSpace("ux", 4, gamma2, p.VOLUME))  
+  biotErrorEst:add(H1SemiComponentSpace("uy", 4, gamma2, p.VOLUME))
+  biotErrorEst:add(H1SemiComponentSpace("uz", 4, gamma2, p.VOLUME))
+  biotErrorEst:add(L2ComponentSpace("p", 2)) 
+  
+  return biotErrorEst
 end
 
 
@@ -993,7 +1024,7 @@ end
 
 
 function cryer3d:add_elem_discs(domainDisc, bStationary)
-  CommonAddElemDiscs(self, domainDisc, bStationary)
+  CommonAddBiotElemDiscs(self, domainDisc, bStationary)
 end
 
 
@@ -1089,7 +1120,7 @@ end
 
 
 function cryer3dTet:add_elem_discs(domainDisc, bStationary)
-  CommonAddElemDiscs(self, domainDisc, bStationary)
+  CommonAddBiotElemDiscs(self, domainDisc, bStationary)
 end
 
 

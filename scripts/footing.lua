@@ -1,6 +1,20 @@
 -- Sample problem from N. Castelleto et al., J Comp Phys 327 (2016) 894-918
 print ("Loading 'footing2D/3D'...")
 
+FOOTING_DEFAULT_VALUES = {
+-- Castelletto et al, JCP, 2016
+  EYOUNG = 1e+6, -- Pa
+  NU = 0.2,
+  
+  ALPHA  = 1.0,
+  KAPPA  = 1e-9, -- m^2/(Pa s)
+  
+  FORCE = 200 -- N/m
+}
+
+FOOTING_DEFAULT_VALUES.LAMBDA = (FOOTING_DEFAULT_VALUES.NU*FOOTING_DEFAULT_VALUES.EYOUNG)/((1.0+FOOTING_DEFAULT_VALUES.NU)*(1.0-2.0*FOOTING_DEFAULT_VALUES.NU))
+FOOTING_DEFAULT_VALUES.MU = 0.5*FOOTING_DEFAULT_VALUES.EYOUNG/(1.0+FOOTING_DEFAULT_VALUES.NU)
+
 footing2D = {
  
   gridName = "../grids/footing2D.ugx",
@@ -9,19 +23,110 @@ footing2D = {
   
   porder = 1,
   uorder = 2,
- -- vStab = 0.0, 
+  
+  vStab = 0.0, 
   
   mandatorySubsets ={"INNER", "IMPERMEABLE", "DRAINAGE", "FOOT"},
   
   modelParameter = { },
   elemDiscParams = { },
 
-  bRAP = false,
+  bRAP = true,
+  bAdjustTransfers = true,
 
 }
 
+function GenericParseCmdArgs(self)
+  self.bRAP    = self.bRAP or util.HasParamOption("--use-rap", "Using Galerkin product")
+  self.porder  = util.GetParamNumber("--orderP", 1, "Order for pressure") 
+  self.uorder  = util.GetParamNumber("--orderU", 2, "Order for displacement") 
+  self.vStab   = util.GetParamNumber("--stab", 0.0, "Stabilization") 
+  
+  if (self.bRAP) then 
+    print ("bAdjustTransfers=false") 
+    self.bAdjustTransfers = true
+  else 
+    print ("bAdjustTransfers=true") 
+    self.bAdjustTransfers = true
+  end
+  
+  print ("pOrder="..self.porder)
+  print ("uOrder="..self.uorder)
+  print ("vStab0="..self.vStab)
+end
+
+function GenericAddStabilization(self, domainDisc)
+  -- CommonAddBiotStabDiscs(self, domainDisc) 
+  print ("vStab1="..self.vStab) 
+  if (self.vStab and self.porder==self.uorder) then 
+  
+    local stab = self.vStab or 0.0
+     self.stabDisc = {}
+    
+     for i=1,#self.elemDiscParams do
+        local _parami = self.elemDiscParams[i]
+        local _gammai = (_parami.LAMBDA+2*_parami.MU)
+         print ("Adding Stabilization:"..stab/_gammai)
+         self.stabDisc[i] = ConvectionDiffusionStabFE("p", _parami["VOLUME"], stab/_gammai)
+         domainDisc:add(self.stabDisc[i])
+     end -- for
+  end --if
+end
+
+function GenericFootingInit(self)
+
+ local E = 1e+6        -- Young's elasticity modulus [Pa]
+  local nu = 0.2        -- Poisson"s ratio  [1]
+  local kappa = 1e-12   --  permeability [m*m]  
+  local mu = 1e-3       -- Pa*s    => Diff Coeff 1e-9
+  local alpha = 1.0
+  local Kcomp = E/(3*(1-2*nu))  -- compression (or bulk) modulus)
+  
+  local Kdim = {}
+  local Kv = 2.0*E/(1+nu)*(1.0-nu)/(1.0-2.0*nu)                                -- uni-axial drained bulk modulus 
+  
+  Kdim[1] = Kv
+  Kdim[2] = Kv/(2.0-2.0*nu)
+  Kdim[3] = Kcomp
+  
+  self.elemDiscParams[1] = { 
+    VOLUME = "INNER",
+     KAPPA = kappa/mu, 
+     LAMBDA=E*nu/((1.0+nu)*(1.0-2.0*nu)), 
+     MU = 0.5*E/(1+nu), 
+     ALPHA=alpha, 
+     PHI= 0, 
+     THETA=(alpha*alpha)/Kdim[self.dim] }
+  
+  print ("theta_stab= "..self.elemDiscParams[1].THETA)
+end
+
+
+function GenericFootingCharTime(self)
+ local consolidation = self.elemDiscParams[1].KAPPA* (self.elemDiscParams[1].LAMBDA + 2*self.elemDiscParams[1].MU)
+ print ("Characteristic time: " ..  (1.0*1.0)/consolidation)
+ return (1.0*1.0)/consolidation -- seconds
+end
 -- Read parameters from command line.
 function footing2D:parse_cmd_args()
+
+  self.bRAP    = self.bRAP or util.HasParamOption("--use-rap", "Using Galerkin product")
+  self.porder  = util.GetParamNumber("--orderP", self.porder, "Order for pressure") 
+  self.uorder  = util.GetParamNumber("--orderU", self.uorder, "Order for displacement") 
+  self.vStab   = util.GetParamNumber("--stab", self.vStab, "Stabilization") 
+  
+  if (self.bRAP) then 
+    print ("bAdjustTransfers=false") 
+    self.bAdjustTransfers = true
+  else 
+    print ("bAdjustTransfers=true") 
+    self.bAdjustTransfers = true
+  end
+  
+  print ("pOrder="..self.porder)
+  print ("uOrder="..self.uorder)
+  print ("vStab0="..self.vStab)
+  
 end
 
 function footing2D:create_domain(numRefs, numPreRefs)
@@ -36,9 +141,7 @@ function footing2D:add_elem_discs(domainDisc, bStationary)
   CommonAddBiotElemDiscs(self, domainDisc, bStationary)
   
   -- Add stabilization.
-  if (self.vStab and self.porder==self.uorder) then 
-    CommonAddBiotStabDiscs(self, domainDisc)   
-  end
+  GenericAddStabilization(self, domainDisc)
 end
 
 
@@ -65,7 +168,7 @@ function footing2D:add_boundary_conditions(domainDisc, bStationary)
  domainDisc:add(neumannZ)
 
   -- Drainage zone.
-  local dirichlet = DirichletBoundary(false,true)
+  local dirichlet = DirichletBoundary(false,self.bAdjustTransfers)
   dirichlet:add(0.1, "p", "DRAINAGE")
   dirichlet:add(0.0, "ux", "IMPERMEABLE,CORNERS")
   dirichlet:add(0.0, "uy", "BOTTOM,CORNERS")
@@ -76,41 +179,11 @@ end
 
 -- Initialize all variables
 function footing2D:init(kperm, nporo, nu, cmedium, cfluid, csolid, volumetricweight)
-  print ("WARNING: Ignoring all parameters")
-  
-  
-  local E = 1e+6        -- Young's elasticity modulus [Pa]
-  local nu = 0.2        -- Poisson"s ratio  [1]
-  local kappa = 1e-12   --  permeability [m*m]  
-  local mu = 1e-3       -- Pa*s    => Diff Coeff 1e-9
-  local alpha = 1.0
-  local Kcomp = E/(3*(1-2*nu))  -- compression (or bulk) modulus)
-  
-  local Kdim = {}
-  local Kv = 2.0*E/(1+nu)*(1.0-nu)/(1.0-2.0*nu)                                -- uni-axial drained bulk modulus 
-  
-  Kdim[1] = Kv
-  Kdim[2] = Kv/(2.0-2.0*nu)
-  Kdim[3] = Kcomp
-  
-  self.elemDiscParams[1] = { 
-    VOLUME = "INNER",
-     KAPPA = kappa/mu, 
-     LAMBDA=E*nu/(1.0+nu)*(1.0-2.0*nu), 
-     MU = E/(1+nu), 
-     ALPHA=alpha, 
-     PHI= 0, 
-     THETA=(alpha*alpha)/Kdim[self.dim] }
-  
-  print ("theta_stab= "..self.elemDiscParams[1].THETA)
-  
-  
+  GenericFootingInit(self) 
 end
 
 function footing2D:get_char_time()
-local consolidation = self.elemDiscParams[1].KAPPA* (self.elemDiscParams[1].LAMBDA + 2*self.elemDiscParams[1].MU)
- print ("Characteristic time: " ..  (1.0*1.0)/consolidation)
- return (1.0*1.0)/consolidation -- seconds
+  return GenericFootingCharTime(self)
 end
 
 -- Initial values.
@@ -159,38 +232,23 @@ footing2D_tri = {
   elemDiscParams = { },
 
   bRAP = false,
+  bAdjustTransfers = true,
 
 }
 
 -- Read parameters from command line.
-function footing2D_tri:parse_cmd_args()
+function footing2D_tri:parse_cmd_args() 
+  GenericParseCmdArgs(self)
 end
 
 function footing2D_tri:create_domain(numRefs, numPreRefs)
-  local dom = util.CreateAndDistributeDomain(self.gridName, numRefs, numPreRefs, self.mandatorySubsets)
-  return dom
+  return util.CreateAndDistributeDomain(self.gridName, numRefs, numPreRefs, self.mandatorySubsets)
 end
 
-
 function footing2D_tri:add_elem_discs(domainDisc, bStationary)
-
   -- Add standard element discs
   CommonAddBiotElemDiscs(self, domainDisc, bStationary)
-  
-  -- Add stabilization.
-  -- CommonAddBiotStabDiscs(self, domainDisc)   
-  if (self.vStab and self.porder==self.uorder) then 
-  
-    local stab = self.vStab or 0.0
-     self.stabDisc = {}
-     
-     for i=1,#self.elemDiscParams do
-        local _parami = self.elemDiscParams[i]
-        local _gammai = (_parami.LAMBDA+2*_parami.MU)
-        self.stabDisc[i] = ConvectionDiffusionStabFE("p", _parami["VOLUME"], stab/_gammai)
-        domainDisc:add(self.stabDisc[i])
-     end -- for
-  end --if
+  GenericAddStabilization(self, domainDisc)
 end
 
 
@@ -217,7 +275,7 @@ function footing2D_tri:add_boundary_conditions(domainDisc, bStationary)
  domainDisc:add(neumannZ)
 
   -- Drainage zone.
-  local dirichlet = DirichletBoundary(false, true)
+  local dirichlet = DirichletBoundary(false, true) --true = truncate (default) false, true
   dirichlet:add(0.1, "p", "DRAINAGE")
   dirichlet:add(0.0, "ux", "IMPERMEABLE,CORNERS")
   dirichlet:add(0.0, "uy", "BOTTOM,CORNERS")
@@ -228,41 +286,12 @@ end
 
 -- Initialize all variables
 function footing2D_tri:init(kperm, nporo, nu, cmedium, cfluid, csolid, volumetricweight)
-  print ("WARNING: Ignoring all parameters")
-  
-  
-  local E = 1e+6        -- Young's elasticity modulus [Pa]
-  local nu = 0.2        -- Poisson"s ratio  [1]
-  local kappa = 1e-12   --  permeability [m*m]  
-  local mu = 1e-3       -- Pa*s    => Diff Coeff 1e-9
-  local alpha = 1.0
-  local Kcomp = E/(3*(1-2*nu))  -- compression (or bulk) modulus)
-  
-  local Kdim = {}
-  local Kv = 2.0*E/(1+nu)*(1.0-nu)/(1.0-2.0*nu)                                -- uni-axial drained bulk modulus 
-  
-  Kdim[1] = Kv
-  Kdim[2] = Kv/(2.0-2.0*nu)
-  Kdim[3] = Kcomp
-  
-  self.elemDiscParams[1] = { 
-    VOLUME = "INNER",
-     KAPPA = kappa/mu, 
-     LAMBDA=E*nu/(1.0+nu)*(1.0-2.0*nu), 
-     MU = E/(1+nu), 
-     ALPHA=alpha, 
-     PHI= 0, 
-     THETA=(alpha*alpha)/Kdim[self.dim] }
-  
-  print ("theta_stab= "..self.elemDiscParams[1].THETA)
-  
-  
+  print ("WARNING: Ignoring all parameters") 
+  GenericFootingInit(self)
 end
 
-function footing2D_tri:get_char_time()
-local consolidation = self.elemDiscParams[1].KAPPA* (self.elemDiscParams[1].LAMBDA + 2*self.elemDiscParams[1].MU)
- print ("Characteristic time: " ..  (1.0*1.0)/consolidation)
- return (1.0*1.0)/consolidation -- seconds
+function footing2D_tri:get_char_time() 
+  return GenericFootingCharTime(self)
 end
 
 -- Initial values.
@@ -303,7 +332,7 @@ end
 
 footing3D = {
  
-  gridName = "../grids/footing3D.ugx",
+  gridName = "../grids/footing3D-tet.ugx",
   dim = 3,
   cpu = 1,
   
@@ -320,16 +349,17 @@ footing3D = {
 
 -- Read parameters from command line.
 function footing3D:parse_cmd_args()
+  GenericParseCmdArgs(self)
 end
 
 function footing3D:create_domain(numRefs, numPreRefs)
-  local dom = util.CreateAndDistributeDomain(self.gridName, numRefs, numPreRefs, self.mandatorySubsets)
-  return dom
+  return util.CreateAndDistributeDomain(self.gridName, numRefs, numPreRefs, self.mandatorySubsets)
 end
 
 
 function footing3D:add_elem_discs(domainDisc, bStationary)
   CommonAddBiotElemDiscs(self, domainDisc, bStationary)
+  GenericAddStabilization(self, domainDisc)
 end
 
 
@@ -356,11 +386,11 @@ function footing3D:add_boundary_conditions(domainDisc, bStationary)
  domainDisc:add(neumannZ)
 
   -- Drainage zone.
-  local dirichlet = DirichletBoundary()
+  local dirichlet = DirichletBoundary(false, true)
   dirichlet:add(0.1, "p", "DRAINAGE")
-  dirichlet:add(0.0, "ux", "IMPERMEABLE,EDGES")
-  dirichlet:add(0.0, "uy", "IMPERMEABLE,EDGES")
-  dirichlet:add(0.0, "uz", "BOTTOM,EDGES")
+  dirichlet:add(0.0, "ux", "IMPERMEABLE,EDGES,BOTTOM_CAGE")
+  dirichlet:add(0.0, "uy", "IMPERMEABLE,EDGES,BOTTOM_CAGE")
+  dirichlet:add(0.0, "uz", "BOTTOM,BOTTOM_CAGE")
   
   domainDisc:add(dirichlet)
  
@@ -369,40 +399,11 @@ end
 -- Initialize all variables
 function footing3D:init(kperm, nporo, nu, cmedium, cfluid, csolid, volumetricweight)
   print ("WARNING: Ignoring all parameters")
-  
-  
-  local E = 1e+6        -- Young's elasticity modulus [Pa]
-  local nu = 0.2        -- Poisson"s ratio  [1]
-  local kappa = 1e-12   --  permeability [m*m]  
-  local mu = 1e-3       -- Pa*s    => Diff Coeff 1e-9
-  local alpha = 1.0
-  local Kcomp = E/(3*(1-2*nu))  -- compression (or bulk) modulus)
-  
-  local Kdim = {}
-  local Kv = 2.0*E/(1+nu)*(1.0-nu)/(1.0-2.0*nu)                                -- uni-axial drained bulk modulus 
-  
-  Kdim[1] = Kv
-  Kdim[2] = Kv/(2.0-2.0*nu)
-  Kdim[3] = Kcomp
-  
-  self.elemDiscParams[1] = { 
-    VOLUME = "INNER",
-     KAPPA = kappa/mu, 
-     LAMBDA=E*nu/(1.0+nu)*(1.0-2.0*nu), 
-     MU = E/(1+nu), 
-     ALPHA=alpha, 
-     PHI= 0, 
-     THETA=(alpha*alpha)/Kdim[self.dim] }
-  
-  print ("theta_stab= "..self.elemDiscParams[1].THETA)
-  
-  
+  GenericFootingInit(self)
 end
 
 function footing3D:get_char_time()
- local tchar = self.elemDiscParams[1].KAPPA* (self.elemDiscParams[1].LAMBDA + 2*self.elemDiscParams[1].MU)
- print ("Characteristic time: " .. tchar)
- return tchar -- seconds
+  return GenericFootingCharTime(self)
 end
 
 -- Initial values.

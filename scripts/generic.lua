@@ -240,17 +240,18 @@ function CommonAddBiotElemDiscs(self, domainDisc, bStationary)
 end
 
 -- Creates discretization for stabilization matrix.
-function CommonAddBiotStabDiscs(self, domainDisc)
+function CommonAddBiotStabDiscs(self, domainDisc, bStationary)
   
   self.stabDisc = {}
   
   local stab = self.vStab or 0.0;
-  if  self.vStab==0.0 then return end
+  if (stab==0.0) then return end
   
   
   -- forward call to 'generic.lua'
   
-    
+  if (bStationary == false) then print ("ERROR: Only implemented for Mass matrix!") return quit; end;
+     
   for i=1,#self.elemDiscParams do
     local _parami = self.elemDiscParams[i]
     self.stabDisc[i] = ConvectionDiffusionStabFE("p", _parami["VOLUME"], stab)

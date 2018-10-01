@@ -38,11 +38,14 @@ local numRefs      = util.GetParamNumber("--num-refs", 3, "total number of refin
 
 local ARGS = {
   problemID = util.GetParam("--problem-id", "deleeuw2d"), -- cryer3d‚
-  solverID =  util.GetParam("--solver-id", "UzawaMG"),  --  "FixedStressEX", "UzawaMG", "UzawaSmoother","UzawaMGKrylov"
+  solverID =  util.GetParam("--solver-id", "GMG"),  --  "FixedStressEX", "UzawaMG", "UzawaSmoother","UzawaMGKrylov"
 
   useVTK =  util.HasParamOption("--with-vtk", "Plot VTK"),
   useDebugIter =  util.HasParamOption("--with-debug-iter", "Activate debug solver."),
   -- doCheck =  util.HasParamOption("--with-check", ""),
+ 
+ 
+  bSteadyStateMechanics = not util.HasParamOption("--with-transient-mechanics"), -- OPTIONAL: transient mechanics
  
   MGCycleType = util.GetParam("--mg-cycle-type", "W", "V,F,W"),
   MGBaseLevel = util.GetParamNumber("--mg-base-level", 0, "some non-negative integer"),  
@@ -222,7 +225,7 @@ print("... done!")
 -- Problem Setup
 --------------------------------------------------------------------------------
 print("FE discretization...") 
-local bSteadyStateMechanics = true -- true
+local bSteadyStateMechanics = ARGS.bSteadyStateMechanics -- true
 local domainDisc0 = DomainDiscretization(approxSpace)
 problem:add_elem_discs(domainDisc0, bSteadyStateMechanics)
 problem:add_boundary_conditions(domainDisc0, bSteadyStateMechanics)
@@ -319,8 +322,8 @@ local uzawaBackward = createUzawaIteration("p", nil, Jacobi(0.66), bgs, uzawaSch
 local uzawaForward2 = createUzawaIteration("p", SymmetricGaussSeidel(), Jacobi(0.66), nil, uzawaSchurUpdateOp, uzawaWeight)
 local uzawaBackward2 = createUzawaIteration("p", nil, Jacobi(0.66), SymmetricGaussSeidel(), uzawaSchurUpdateOp, uzawaWeight)
 
-local uzawaForward2 = createUzawaIteration("p", SymmetricGaussSeidel(), SymmetricGaussSeidel(), nil, uzawaSchurUpdateOp, uzawaWeight)
-local uzawaBackward2 = createUzawaIteration("p", nil, SymmetricGaussSeidel(), SymmetricGaussSeidel(), uzawaSchurUpdateOp, uzawaWeight)
+local uzawaForward3 = createUzawaIteration("p", SymmetricGaussSeidel(), SymmetricGaussSeidel(), nil, uzawaSchurUpdateOp, uzawaWeight)
+local uzawaBackward3 = createUzawaIteration("p", nil, SymmetricGaussSeidel(), SymmetricGaussSeidel(), uzawaSchurUpdateOp, uzawaWeight)
 
 --[[
 local pi=LinearIteratorProduct()
@@ -343,17 +346,23 @@ local preSmoother
 local postSmoother
 
 if (ARGS.MGSmootherType == "uzawa") then
-  preSmoother = uzawaForward
+  preSmoother  = uzawaForward
   postSmoother = uzawaBackward
 elseif (ARGS.MGSmootherType == "uzawa2") then
-  preSmoother = uzawaForward2
+  preSmoother  = uzawaForward2
   postSmoother = uzawaBackward2
+elseif (ARGS.MGSmootherType == "uzawa3") then
+  preSmoother  = uzawaForward3
+  postSmoother = uzawaBackward3
 elseif (ARGS.MGSmootherType == "cgs") then
-  preSmoother = cgs
+  preSmoother  = cgs
   postSmoother = cgs
 elseif (ARGS.MGSmootherType == "vanka-ssc") then
-  preSmoother = ssc
+  preSmoother  = ssc
   postSmoother = ssc
+elseif (ARGS.MGSmootherType == "sgs") then
+  preSmoother  = sgs
+  postSmoother = sgs
 else
   quit()
 end
@@ -391,7 +400,10 @@ gmg:set_postsmoother(postSmoother)
 gmg:set_cycle_type(ARGS.MGCycleType) -- 1:V, 2:W -- "F"
 gmg:set_num_presmooth(ARGS.MGNumSmooth)
 gmg:set_num_postsmooth(ARGS.MGNumSmooth)
-gmg:set_rap(problem.bRAP or true)  -- mandatory, if set_stationary
+gmg:set_rap(problem.bRAP)  -- mandatory, if set_stationary
+
+ if (problem.bRAP) then print ("gmg:bRAP=true") 
+ else print ("gmg:bRAP=false") end
 -- gmg:set_debug(dbgWriter)
 
 
@@ -422,7 +434,7 @@ gmgU:set_postsmoother(sgs)
 gmgU:set_cycle_type("V") -- 1:V, 2:W -- "F"
 gmgU:set_num_presmooth(3)
 gmgU:set_num_postsmooth(3)
-gmgU:set_rap(true)  -- mandatory, if set_stationary
+gmgU:set_rap(true)  -- mandatory, if add_ionary
 gmgU:set_debug(dbgWriter)
 
 local uzawaTotal       = createUzawaIteration("p", ILUT(1e-8), ILUT(1e-8), nil, uzawaSchurUpdateOp, 1.0)      -- ???
@@ -482,10 +494,10 @@ dbgIter:set_debug(dbgWriter)  -- print t_0 anf t_N
 local solver = {}
 
 local convCheck = ConvCheck()
-convCheck:set_maximum_steps(30)
+convCheck:set_maximum_steps(50)
 convCheck:set_reduction(1e-8) 
-convCheck:set_minimum_defect(1e-16)
-convCheck = cmpConvCheck  -- for DEBUGGING purposes
+convCheck:set_minimum_defect(1e-14)
+-- convCheck = cmpConvCheck  -- for DEBUGGING purposes
 
 local iluSolver = LinearSolver()
 iluSolver:set_preconditioner(ilut)
@@ -499,13 +511,12 @@ solver["UzawaSmoother"] = LinearSolver()
 solver["UzawaSmoother"]:set_preconditioner(uzawaForward2)
 solver["UzawaSmoother"]:set_convergence_check(convCheck)
 
-solver["UzawaMG"] = LinearSolver()
-solver["UzawaMG"]:set_preconditioner(gmg) -- gmg, dbgIter
-solver["UzawaMG"]:set_convergence_check(convCheck) -- cmpConvCheck
-
-solver["UzawaMGKrylov"] = BiCGStab()
-solver["UzawaMGKrylov"]:set_preconditioner(gmg) -- gmg, dbgIter
-solver["UzawaMGKrylov"]:set_convergence_check(convCheck) -- cmpConvCheck
+solver["GMG"] = LinearSolver()
+solver["GMG"]:set_preconditioner(gmg) -- gmg, dbgIter
+solver["GMG"]:set_convergence_check(convCheck) -- cmpConvCheck
+solver["GMGKrylov"] = BiCGStab()
+solver["GMGKrylov"]:set_preconditioner(gmg) -- gmg, dbgIter
+solver["GMGKrylov"]:set_convergence_check(convCheck) -- cmpConvCheck
 
 
 solver["FixedStressEX"] = LinearSolver()
@@ -516,10 +527,15 @@ solver["FixedStressEXKrylov"] = BiCGStab()
 solver["FixedStressEXKrylov"]:set_preconditioner(fixedStressSuperLU)
 solver["FixedStressEXKrylov"]:set_convergence_check(convCheck)
 
-
 solver["FixedStressMG"] = LinearSolver() -- BiCGStab()
 solver["FixedStressMG"]:set_preconditioner(fixedStressMG)
 solver["FixedStressMG"]:set_convergence_check(convCheck)
+
+solver["SuperLU"] = SuperLU() -- SuperLU
+
+solver["LU"] = LinearSolver() 
+solver["LU"]:set_preconditioner(LU())
+solver["LU"]:set_convergence_check(convCheck)
 
 local myIter = gmg
 if (ARGS.useDebugIter) then myIter =  dbgIter end
@@ -539,9 +555,9 @@ gmresSolver:set_convergence_check(convCheck)
 
 local sluSolver = SuperLU()
 
-local luSolver = LinearSolver()
-luSolver:set_preconditioner(LU())
-luSolver:set_convergence_check(convCheck)
+-- local luSolver = LinearSolver()
+-- luSolver:set_preconditioner(LU())
+-- luSolver:set_convergence_check(convCheck)
 
 -- Select solver.
 local lsolver = solver[ARGS.solverID]
@@ -549,7 +565,7 @@ local lsolver = solver[ARGS.solverID]
 --lsolver = iluSolver
 --lsolver = gmgSolver
 --lsolver = cgSolver
-lsolver = bicgstabSolver 
+-- lsolver = bicgstabSolver 
 --lsolver = gmresSolver
 --lsolver:set_compute_fresh_defect_when_finished(true)
 -- lsolver = sluSolver
@@ -622,8 +638,6 @@ if (problem.check) then problem:check(u) end
 print("Interpolation start values")
 problem:interpolate_start_values(u, startTime)
 
-
-
 -- Create callback.
 function myStepCallback0(u, step, time)
   problem:post_processing(u, step, time)
@@ -641,10 +655,28 @@ dtMin = 1e-2*dt
 if ( ARGS.LimexNStages<2) then
 
 -- STANDARD (implicit Euler) time-stepping.
+
+
+if (false) then 
 print("dt="..dt/charTime)							   
 util.SolveNonlinearTimeProblem(u, domainDisc0, nlsolver, myStepCallback0, "PoroElasticityInitial",
 						   "ImplEuler", 1, startTime, endTime, dt, dtMin/2, dtRed); 
-						   
+			
+else 			   
+  -- test suite for linear solver
+  convCheck:set_reduction(1e-10) 
+  convCheck:set_maximum_steps(100)
+
+  local dtTestSet = {1.0, 0.1, 0.01, 1e-3, 1e-4, 1e-6, 1e-8}
+  for index,dtvalue in ipairs(dtTestSet) do
+    dt = dtvalue*problem:get_char_time()
+    endTime = dt
+	  print("%DTFACTOR=\t"..dtvalue.."\tindex=\t"..index)	   
+		problem:interpolate_start_values(u, startTime)	
+		util.SolveNonlinearTimeProblem(u, domainDiscT, nlsolver, myStepCallback0, "SolverTest"..index,
+               "ImplEuler", 1, startTime, endTime, dt, dt, dtRed); 
+  end					   
+end
 --util.SolveLinearTimeProblem(u, domainDiscT, lsolver, myStepCallback0, "PoroElasticityTransient",
 --                 "ImplEuler", 1, startTime, endTime, dt, dtmin, dtred);						   
 else

@@ -163,6 +163,7 @@ function DeLeeuw.SetModelParameters(self, nporo, nu_poisson, dCmedium, dCfluid, 
   local BSkempton = (CMedium-CSolid)/((CMedium-CSolid)+ nporo*(CFluid-CSolid))
    
   local alpha = 1.0-cscm;                                 -- non-dimensional Biot coeff
+  -- alpha = 0 -- for DEBUGGING
   local KS  = nporo * cfcm + (alpha-nporo)*cscm;          -- K*S
   
   self.modelParameter.cscm = cscm;
@@ -206,13 +207,13 @@ function DeLeeuw.SetModelParameters(self, nporo, nu_poisson, dCmedium, dCfluid, 
    Kdim[2] = Kv/(2.0-2.0*nu)
    Kdim[3] = 1.0/CMedium
   
-  print("Kd="..Kdim[1]..", "..Kdim[2]..", "..Kdim[2])
- --  alpha = 0 for DEBUGGING
+  print("Kd="..Kdim[1]..", "..Kdim[2]..", "..Kdim[3])
+ -- alpha = 0 -- for DEBUGGING
   self.elemDiscParams = {}
   self.elemDiscParams[1] =
  -- { VOLUME = "INNER",  KAPPA = D, LAMBDA=lambda, MU = G, ALPHA=alpha, PHI=self.modelParameter.S, THETA=(alpha*alpha)*CMedium }
 
-  { VOLUME = "INNER",  KAPPA = kappa, LAMBDA=lambda, MU = G, ALPHA=alpha, PHI=self.modelParameter.S, THETA=0.0075}-- THETA=(alpha*alpha)/Kdim[dim]} -- THETA=}
+  { VOLUME = "INNER",  KAPPA = kappa, LAMBDA=lambda, MU = G, ALPHA=alpha, PHI=self.modelParameter.S, THETA=(alpha*alpha)/Kdim[dim]}-- THETA=(alpha*alpha)/Kdim[dim]} -- THETA=}
 
   
   print ("MassScale=".. self.elemDiscParams[1].THETA)
@@ -262,13 +263,16 @@ function DeLeeuw.InitRoots(self, N)
   
     local a1=x+0.000001;
     local a2=x+1.2*PI;
-    local f1=2.0*MM*a1*DeLeeuw.J0(a1)-DeLeeuw.J1(a1);
-    local f2=2.0*MM*a2*DeLeeuw.J0(a2)-DeLeeuw.J1(a2);
+    -- local f1=2.0*MM*a1*DeLeeuw.J0(a1)-DeLeeuw.J1(a1);
+   --  local f2=2.0*MM*a2*DeLeeuw.J0(a2)-DeLeeuw.J1(a2);
+    local f1=2.0*MM*a1*BesselJ0(a1)-BesselJ1(a1);
+    local f2=2.0*MM*a2*BesselJ0(a2)-BesselJ1(a2);
     
     -- find root by bisection
     while (true) do
         local am=(a1+a2)/2.0;
-        local fm=2.0*MM*am*DeLeeuw.J0(am)-DeLeeuw.J1(am);
+        -- local fm=2.0*MM*am*DeLeeuw.J0(am)-DeLeeuw.J1(am);
+        local fm=2.0*MM*am*BesselJ0(am)-BesselJ1(am);
         
         
         if (f1*fm<0.0) then 
@@ -306,7 +310,7 @@ function DeLeeuw.GetCharTime(self)
   return (self.a*self.a*beta)/(Kplus43G * self.elemDiscParams[1].KAPPA);
 end
 
-function DeLeeuw.ComputePressure(self, x, t)
+function DeLeeuw.ComputePressure(self, r, t)
 
   local N = self.n_approx;
   local mc = self.modelParameter.MM;  
@@ -317,24 +321,24 @@ function DeLeeuw.ComputePressure(self, x, t)
 
   local jt = 0
   local i = 1
-  while ((i<=N) and (jt <= 20.0)) do
+  while ((i<=N) --[[ and (jt <= 30.0)..]]) do
     local aa    = self.ROOT[i];
-    local jj    = DeLeeuw.J0(aa);
-    local jjx   = 1.0-- DeLeeuw.J0(aa*x/self.a);
+    local jj    = BesselJ0(aa) -- DeLeeuw.J0(aa);
+    local jjx   = BesselJ0(aa*r/self.a); -- DeLeeuw.J0(aa*r/self.a);
     
-    local coeff = (jj-jjx)/((1-mc*aa*aa-1/(4*mc))*jj);  
+    local coeff = (1.0-jjx/jj)/(1.0-mc*aa*aa-1/(4*mc));  
     jt    = aa*aa*(t/self.charTime);
     
     pp = pp + coeff*math.exp(-jt);
   
-  if (false) then
+  if (false) then -- DEBUG
     print ("aa[i]= ".. aa) 
-  print ("time[i]= ".. jt) 
-  print ("coeff[i]= ".. coeff) 
-  print ("decay[i]= ".. math.exp(-jt))
- print ("delta[i]= ".. coeff*math.exp(-jt))
-  print ("pp[i]= ".. pp)
-  print("==")
+    print ("time[i]= ".. jt) 
+    print ("coeff[i]= ".. coeff) 
+    print ("decay[i]= ".. math.exp(-jt))
+    print ("delta[i]= ".. coeff*math.exp(-jt))
+    print ("pp[i]= ".. pp)
+    print("==")
   end
    i = i+1
   end
@@ -423,7 +427,7 @@ end
 function Cryer.InitRoots(self)
   self.ROOT = {}
   local N = self.n_approx;
-  local eps=0.0000001;
+  local eps= 1e-10 --0.0000001;
 
   local PI=math.pi;
   local eta = self.modelParameter.eta;
@@ -439,7 +443,7 @@ function Cryer.InitRoots(self)
     local b1 = math.tan(a1)*(1.0-eta*a1*a1/2.0)-a1;
     
     local a2;
-    for i=1,5 do
+    for i=1,5 do 
       for k=1,N do
       
         a2 = a1+da/N;  -- next guess 
@@ -460,7 +464,7 @@ function Cryer.InitRoots(self)
     -- check:
     
     local closeToZero = (1.0-eta*self.ROOT[j]*self.ROOT[j]/2.0)* math.tan(self.ROOT[j]) - self.ROOT[j]
-    if (math.abs(closeToZero)>1e-8) then
+    if (math.abs(closeToZero)>1e-12) then
       print ("WARNING: rootCheck[j]="..closeToZero.." (j="..j..")")
     end
   end
@@ -616,6 +620,8 @@ end
   
   
 -- ]]
+-- OLD:
+--[[
 deleeuw2d = {
 
   gridName = "../grids/cryer2d-with-projectorb.ugx",
@@ -632,9 +638,58 @@ deleeuw2d = {
   n_approx = 100,
   
   modelParameter = {},
-  elemDiscParams = {}
+  elemDiscParams = {},
+
+  bRAP = false,
+}
+--]]
+
+deleeuw2d = {
+
+  gridName = "../grids/cryer2d-with-projectorb-tri.ugx",
+  dim = 2,
+  cpu = 1,
+  
+  porder = 1,
+  uorder = 1, -- should be 2
+  vStab = 0.0, --1.0/12.0,  --*h^2 /(lambda+2G)
+  mandatorySubsets ={"INNER"},
+  
+  a = 0.5, 
+  qForce = 1.0,
+  
+  n_approx = 4096,
+  
+  modelParameter = {},
+  elemDiscParams = {},
+  
+  bRAP = false,
+  bAdjustTransfers = true
 
 }
+
+
+-- Read parameters from command line.
+function deleeuw2d:parse_cmd_args()
+
+  self.bRAP    = self.bRAP or util.HasParamOption("--use-rap", "Using Galerkin product")
+  self.porder  = util.GetParamNumber("--orderP", 1, "Order for pressure") 
+  self.uorder  = util.GetParamNumber("--orderU", 2, "Order for displacement") 
+  self.vStab   = util.GetParamNumber("--stab", 0.0, "Stabilization") 
+  
+  if (self.bRAP) then 
+    print ("bAdjustTransfers=false") 
+    self.bAdjustTransfers = true
+  else 
+    print ("bAdjustTransfers=true") 
+    self.bAdjustTransfers = true
+  end
+  
+  print ("pOrder="..self.porder)
+  print ("uOrder="..self.uorder)
+  print ("vStab0="..self.vStab)
+end
+
 
 function deleeuw2d:create_domain(numRefs, numPreRefs)
   local dom = util.CreateAndDistributeDomain(self.gridName, numRefs, numPreRefs, self.mandatorySubsets)
@@ -648,6 +703,17 @@ function deleeuw2d:init(kperm, nporo, nu, cmedium, cfluid, csolid, gamma_f)
   DeLeeuw.InitRoots(self, self.n_approx)
   self.charTime = self:get_char_time(); 
   DeLeeuw.PrintModelParameters(self)
+  
+  -- Reset stabilization
+  if (self.vStab and self.vStab ~= 0.0) then
+      print ("vStab(preReset)="..self.vStab)
+      local lambda = self.modelParameter.lambda
+      local G = self.modelParameter.G 
+      local factor = lambda+2.0*G
+      self.vStab = self.vStab/factor
+      print ("vStab(postReset)="..self.vStab)
+  end
+  
   print ("charTime="..self.charTime)
 end
 
@@ -659,6 +725,11 @@ end
 
 function deleeuw2d:add_elem_discs(domainDisc, bStationary)
   CommonAddBiotElemDiscs(self, domainDisc, bStationary)
+  
+   if (self.vStab and self.vStab~= 0.0 and self.porder==self.uorder) then     -- Add stabilization?
+    print ("vStab="..self.vStab)
+    CommonAddBiotStabDiscs(self, domainDisc)   
+  end
 end
 
 function deleeuw2d:add_uzawa_discs(domainDisc)
@@ -730,14 +801,16 @@ local neumannX = NeumannBoundaryFE("ux")
  domainDisc:add(neumannX)
  domainDisc:add(neumannY)
  
-  local dirichlet = DirichletBoundary()
+  if (self.bAdjustTransfers) then print ("Dirichlet w/ adjusting transfers") end
+  
+  local dirichlet = DirichletBoundary(false, self.bAdjustTransfers)
   dirichlet:add(0.0, "p", "RIM,EAST,WEST,NORTH,SOUTH")
   
- -- dirichlet:add(0.0, "ux", "CENTER, NORTH, SOUTH")
- -- dirichlet:add(0.0, "uy", "CENTER, EAST,WEST")
+  dirichlet:add(0.0, "ux", "CENTER, NORTH, SOUTH")
+  dirichlet:add(0.0, "uy", "CENTER, EAST,WEST")
   
-  dirichlet:add(0.0, "ux", "CENTER")
-  dirichlet:add(0.0, "uy", "CENTER")
+  --dirichlet:add(0.0, "ux", "CENTER")
+  --dirichlet:add(0.0, "uy", "CENTER")
   
   domainDisc:add(dirichlet)
  
@@ -753,9 +826,50 @@ function deleeuw2d:interpolate_start_values(u, startTime)
 end
 
 
+-- create error estimator
+function deleeuw2d:error_estimator()
+  local p = self.elemDiscParams[1]
+  local gamma2 = (p.LAMBDA+2*p.MU)*(p.LAMBDA+2*p.MU)
+  print("deleeuw3dTet:error_estimator: gamma="..gamma2)
+  
+  local biotErrorEst = CompositeGridFunctionEstimator()
+  biotErrorEst:add(L2ComponentSpace("p", 2))       
+  biotErrorEst:add(H1SemiComponentSpace("ux", 4, gamma2, p.VOLUME))  
+  biotErrorEst:add(H1SemiComponentSpace("uy", 4, gamma2, p.VOLUME))
+  -- biotErrorEst:add(H1SemiComponentSpace("uz", 4, gamma2, p.VOLUME))
+ 
+  return biotErrorEst
+end
+
+__DELEEUW_2D_GLOBAL__  = nil
+function DeLeeuw2DPressure(x, y, t)
+  return DeLeeuw.ComputePressure(__DELEEUW_2D_GLOBAL__, math.sqrt(x*x+y*y), t)
+end
+
 -- post processing (after each step)
 function deleeuw2d:post_processing(u, step, time)
-  print ("p0:\t"..time.."\t"..time/self.charTime.."\t"..(Integral(u, "p", "CENTER")/self.modelParameter.p0).."\t"..DeLeeuw.ComputePressure(self, 0.0, time))
+ 
+  local simP = Integral(u, "p", "CENTER")/self.modelParameter.p0
+  local refP = DeLeeuw.ComputePressure(self, 0.0, time)
+  print ("p0:\t"..time.."\t"..time/self.charTime.."\t"..simP.."\t"..refP.."\t"..simP-refP)
+ 
+ 
+  __DELEEUW_2D_GLOBAL__ = self
+
+  
+  local uref = u:clone()
+  Interpolate("DeLeeuw2DPressure", uref, "p", "INNER,CENTER", time)
+  
+  local vtk = VTKOutput()
+  vtk:print("DeLeeuw2D_Sol.vtu", u, step, time)
+  vtk:print("DeLeeuw2D_Ref.vtu", uref, step, time)
+  
+  VecScaleAdd2(uref, 1.0, uref, -1.0, u)
+  vtk:print("DeLeeuw2D_Err.vtu", uref, step, time)
+  
+  local normP=L2Norm(u, "p", 2)
+  local errP=L2Norm(uref, "p", 2)
+  print ("errP:\t"..time.."\t"..time/self.charTime.."\t"..errP.."\t"..normP)
 end
 
 
@@ -784,6 +898,9 @@ deleeuw3d = {
   bRAP = true,
 
 }
+
+function deleeuw3d:parse_cmd_args()
+end
 
 function deleeuw3d:create_domain(numRefs, numPreRefs)
   local dom = util.CreateAndDistributeDomain(self.gridName, numRefs, numPreRefs, self.mandatorySubsets)
@@ -890,9 +1007,12 @@ deleeuw3dTet = {
   
   modelParameter = {},
   elemDiscParams = {},
-  bRAP = true,
+  bRAP = false,
 
 }
+
+function deleeuw3dTet:parse_cmd_args()
+end
 
 function deleeuw3dTet:create_domain(numRefs, numPreRefs)
   local dom = util.CreateAndDistributeDomain(self.gridName, numRefs, numPreRefs, self.mandatorySubsets)

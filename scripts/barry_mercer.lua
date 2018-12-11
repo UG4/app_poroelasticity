@@ -166,7 +166,7 @@ barrymercer2D_tri = {
   modelParameter = { },
   elemDiscParams = { },
 
-  bRAP = false,
+  bRAP = true,
 
 }
 
@@ -180,6 +180,23 @@ function barrymercer2D_tri:parse_cmd_args()
   -- Number of terms in approximation.
   BARRY_MERCER_DATA.NAPPROX =  util.GetParamNumber("--bm-napprox", 256, "frequency bound (for analytic solution) ") 
   
+  
+  self.bRAP    = self.bRAP or util.HasParamOption("--use-rap", "Using Galerkin product")
+  self.porder  = util.GetParamNumber("--orderP", 1, "Order for pressure") 
+  self.uorder  = util.GetParamNumber("--orderU", 2, "Order for displacement") 
+  self.vStab   = util.GetParamNumber("--stab", 0.0, "Stabilization") 
+  
+  if (self.bRAP) then 
+    print ("bAdjustTransfers=false") 
+    self.bAdjustTransfers = true
+  else 
+    print ("bAdjustTransfers=true") 
+    self.bAdjustTransfers = true
+  end
+  
+  print ("pOrder="..self.porder)
+  print ("uOrder="..self.uorder)
+  print ("vStab0="..self.vStab)
   
 end
 
@@ -203,6 +220,9 @@ function barrymercer2D_tri:add_elem_discs(domainDisc, bStationary)
   local pointSourceDisc = DiracSourceDisc("p", "SINGULARITY")
   pointSourceDisc:add_source("BarryMercerDiracSource2D", Vec2d(0.25, 0.25))
   domainDisc:add(pointSourceDisc)
+  
+  
+  
   -- Add stabilization.
   -- CommonAddBiotStabDiscs(self, domainDisc)   
   if (self.vStab and self.porder==self.uorder) then 
@@ -278,7 +298,15 @@ function barrymercer2D_tri:init(kperm, nporo, nu, cmedium, cfluid, csolid, volum
   BARRY_MERCER_DATA.BETA = beta
    print ("beta= "..beta)
   
-  
+  -- Reset stabilization
+  if (self.vStab and self.vStab ~= 0.0) then
+      print ("vStab(preReset)="..self.vStab)
+      local lambda = self.elemDiscParams[1].LAMBDA
+      local G = self.elemDiscParams[1].MU
+      local factor = lambda+2.0*G
+      self.vStab = self.vStab/factor
+      print ("vStab(postReset)="..self.vStab)
+  end
   
 end
 
@@ -379,20 +407,21 @@ function barrymercer2D_tri:post_processing(u, step, time)
   CompareNorms(normSol, normErr, normRef)
   
   -- grep'able output
+  local charTime =self:get_char_time()
   
-  print ("deltaP:\t"..time.."\t"..time/self:get_char_time().."\t"..
+  print ("deltaP:\t"..time.."\t"..time/charTime.."\t"..
     normErr["l2norm-p"].."\t"..normSol["l2norm-p"].."\t"..normRef["l2norm-p"])
     
-  print ("deltaU1A:\t"..time.."\t"..time/self:get_char_time().."\t"..
+  print ("deltaU1A:\t"..time.."\t"..time/charTime.."\t"..
     normErr["h1semi-ux"].."\t"..normSol["h1semi-ux"].."\t"..normRef["h1semi-ux"])
     
-  print ("deltaU2A:\t"..time.."\t"..time/self:get_char_time().."\t"..
+  print ("deltaU2A:\t"..time.."\t"..time/charTime.."\t"..
     normErr["h1semi-uy"].."\t"..normSol["h1semi-uy"].."\t"..normRef["h1semi-uy"])
     
-  print ("deltaU1B:\t"..time.."\t"..time/self:get_char_time().."\t"..
+  print ("deltaU1B:\t"..time.."\t"..time/charTime.."\t"..
     normErr["l2norm-ux"].."\t"..normSol["l2norm-ux"].."\t"..normRef["l2norm-ux"])
  
-  print ("deltaU2B:\t"..time.."\t"..time/self:get_char_time().."\t"..
+  print ("deltaU2B:\t"..time.."\t"..time/charTime.."\t"..
     normErr["l2norm-uy"].."\t"..normSol["l2norm-uy"].."\t"..normRef["l2norm-uy"])
 
 end

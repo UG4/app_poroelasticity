@@ -90,13 +90,14 @@ function GenericFootingInit(self)
   Kdim[3] = Kcomp
   
   self.elemDiscParams[1] = { 
-    VOLUME = "INNER",
+     VOLUME = "INNER",
      KAPPA = kappa/mu, 
      LAMBDA=E*nu/((1.0+nu)*(1.0-2.0*nu)), 
      MU = 0.5*E/(1+nu), 
      ALPHA=alpha, 
      PHI= 0, 
-     THETA=(alpha*alpha)/Kdim[self.dim] }
+     THETA=(alpha*alpha)/Kdim[self.dim] 
+  }
   
   print ("theta_stab= "..self.elemDiscParams[1].THETA)
 end
@@ -168,7 +169,8 @@ function footing2D:add_boundary_conditions(domainDisc, bStationary)
  domainDisc:add(neumannZ)
 
   -- Drainage zone.
-  local dirichlet = DirichletBoundary(false,self.bAdjustTransfers)
+  -- local dirichlet = DirichletBoundary(false,self.bAdjustTransfers)
+  local dirichlet = DirichletBoundary()
   dirichlet:add(0.1, "p", "DRAINAGE")
   dirichlet:add(0.0, "ux", "IMPERMEABLE,CORNERS")
   dirichlet:add(0.0, "uy", "BOTTOM,CORNERS")
@@ -275,7 +277,8 @@ function footing2D_tri:add_boundary_conditions(domainDisc, bStationary)
  domainDisc:add(neumannZ)
 
   -- Drainage zone.
-  local dirichlet = DirichletBoundary(false, true) --true = truncate (default) false, true
+ -- local dirichlet = DirichletBoundary(false, true) --true = truncate (default) false, true
+  local dirichlet = DirichletBoundary()
   dirichlet:add(0.1, "p", "DRAINAGE")
   dirichlet:add(0.0, "ux", "IMPERMEABLE,CORNERS")
   dirichlet:add(0.0, "uy", "BOTTOM,CORNERS")
@@ -324,10 +327,8 @@ function footing2D_tri:post_processing(u, step, time)
 end
 
 
---[[
-
+--[[ 
 3D PROBLEM
-
 --]]
 
 footing3D = {
@@ -343,7 +344,8 @@ footing3D = {
   modelParameter = { },
   elemDiscParams = { },
   
-  bRAP = false
+  bRAP = false,
+  bAdjustTransfers = true,
 
 }
 
@@ -386,7 +388,8 @@ function footing3D:add_boundary_conditions(domainDisc, bStationary)
  domainDisc:add(neumannZ)
 
   -- Drainage zone.
-  local dirichlet = DirichletBoundary(false, true)
+  --local dirichlet = DirichletBoundary(false, true)
+  local dirichlet = DirichletBoundary()
   dirichlet:add(0.1, "p", "DRAINAGE")
   dirichlet:add(0.0, "ux", "IMPERMEABLE,EDGES,BOTTOM_CAGE")
   dirichlet:add(0.0, "uy", "IMPERMEABLE,EDGES,BOTTOM_CAGE")

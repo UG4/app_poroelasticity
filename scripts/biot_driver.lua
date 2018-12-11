@@ -51,6 +51,7 @@ local ARGS = {
   MGBaseLevel = util.GetParamNumber("--mg-base-level", 0, "some non-negative integer"),  
   MGNumSmooth = util.GetParamNumber("--mg-num-smooth", 2, "some positive integer"), 
   MGSmootherType =  util.GetParam("--mg-smoother-type", "uzawa", "uzawa,cgs"),
+  MGDebugLevel =  util.GetParam("--mg-debug-level", 0, "some non-negative integer"),
   
   -- LIMEX
   LimexTOL     = util.GetParamNumber("--limex-tol", 1e-3, "TOL"),
@@ -59,7 +60,15 @@ local ARGS = {
   
 }
 
+
+
 print ("MGSmootherType="..ARGS.MGSmootherType)
+print ("MGCycleType="..ARGS.MGCycleType)
+print ("MGBaseLevel="..ARGS.MGBaseLevel)
+print ("MGDebugLevel="..ARGS.MGDebugLevel)
+
+GetLogAssistant():set_debug_level("LIB_DISC_MULTIGRID", ARGS.MGDebugLevel); 
+--SetDebugLevel("LIB_DISC_MULTIGRID", 0)
 
 -- Set parameters
 local kperm   = 1e-0 -- m/s 1e-3
@@ -94,7 +103,8 @@ if (not problem) then
 end
 
 problem:parse_cmd_args()
-problem:init(kperm, poro, nu, 1.0/Kmedium, 1.0/Kfluid, 0.0)
+--problem:init(kperm, poro, nu, 1.0/Kmedium, 1.0/Kfluid, 0.0)
+problem:init(kperm, poro, nu, 1.0/Kmedium, 0.0, 0.0)
 
 local charTime = problem:get_char_time()
 print("charTime="..charTime)
@@ -402,6 +412,8 @@ gmg:set_num_presmooth(ARGS.MGNumSmooth)
 gmg:set_num_postsmooth(ARGS.MGNumSmooth)
 gmg:set_rap(problem.bRAP)  -- mandatory, if set_stationary
 
+
+-- gmg:set_debug(dbgWriter) 
  if (problem.bRAP) then print ("gmg:bRAP=true") 
  else print ("gmg:bRAP=false") end
 -- gmg:set_debug(dbgWriter)
@@ -472,7 +484,7 @@ end
 cmpConvCheck2:set_component_check("p", p0*1e-12, 1e-6)
 cmpConvCheck2:set_maximum_steps(50)
 
-cmpConvCheck2 = ConvCheck(50, 1e-25, 1e-20)
+cmpConvCheck2 = ConvCheck(200, 1e-25, 1e-20)
 
 local dbgSolver = LinearSolver()
 dbgSolver:set_preconditioner(gmg) -- cgs, gmg, uzawa
@@ -512,7 +524,7 @@ solver["UzawaSmoother"]:set_preconditioner(uzawaForward2)
 solver["UzawaSmoother"]:set_convergence_check(convCheck)
 
 solver["GMG"] = LinearSolver()
-solver["GMG"]:set_preconditioner(gmg) -- gmg, dbgIter
+solver["GMG"]:set_preconditioner(dbgIter) -- gmg, dbgIter
 solver["GMG"]:set_convergence_check(convCheck) -- cmpConvCheck
 solver["GMGKrylov"] = BiCGStab()
 solver["GMGKrylov"]:set_preconditioner(gmg) -- gmg, dbgIter
@@ -641,7 +653,7 @@ problem:interpolate_start_values(u, startTime)
 -- Create callback.
 function myStepCallback0(u, step, time)
   problem:post_processing(u, step, time)
-  vtk:print("PoroElasticityStd.vtu", u, step, time)
+  vtk:print("PoroElasticityInitial.vtu", u, step, time)
 end
 
 print ("Integrating from 0.0 to "..endTime)
@@ -649,36 +661,47 @@ print ("Integrating from 0.0 to "..endTime)
 							   
 --dt =dt*1e-4*problem:get_char_time() -- smaller => more complicated
 
+local charTime = problem:get_char_time()
 dt = 1e-2*problem:get_char_time()
 dtMin = 1e-2*dt
 
-if ( ARGS.LimexNStages<2) then
+--
+local myclock = CuckooClock()
 
--- STANDARD (implicit Euler) time-stepping.
+if (( ARGS.LimexNStages > 0)) then
+  local dt0 = charTime*1e-50
+  print("Computing consistent initial value w/ dt0="..dt0)                
+  util.SolveNonlinearTimeProblem(u, domainDisc0, nlsolver, myStepCallback0, "PoroElasticityInitial",
+               "ImplEuler", 1, startTime, dt0, dt0, dt0, dtRed); 
+               
+ -- quit()
+end
 
 
-if (false) then 
-print("dt="..dt/charTime)							   
-util.SolveNonlinearTimeProblem(u, domainDisc0, nlsolver, myStepCallback0, "PoroElasticityInitial",
-						   "ImplEuler", 1, startTime, endTime, dt, dtMin/2, dtRed); 
-			
-else 			   
-  -- test suite for linear solver
+
+if ( ARGS.LimexNStages==0) then
+
+  -- TEST SUITE for linear solver.
   convCheck:set_reduction(1e-10) 
   convCheck:set_maximum_steps(100)
 
-  local dtTestSet = {1.0, 0.1, 0.01, 1e-3, 1e-4, 1e-6, 1e-8}
+  local dtTestSet = {1.0, 0.1, 0.01, 1e-3, 1e-4, 1e-6, 1e-8, 0.0}
   for index,dtvalue in ipairs(dtTestSet) do
-    dt = dtvalue*problem:get_char_time()
+    dt = dtvalue*charTime
     endTime = dt
 	  print("%DTFACTOR=\t"..dtvalue.."\tindex=\t"..index)	   
 		problem:interpolate_start_values(u, startTime)	
+		myclock:tic()
 		util.SolveNonlinearTimeProblem(u, domainDiscT, nlsolver, myStepCallback0, "SolverTest"..index,
                "ImplEuler", 1, startTime, endTime, dt, dt, dtRed); 
+    print("MYCLOCK="..myclock:cuckoo().."; "..myclock:toc())
   end					   
-end
---util.SolveLinearTimeProblem(u, domainDiscT, lsolver, myStepCallback0, "PoroElasticityTransient",
---                 "ImplEuler", 1, startTime, endTime, dt, dtmin, dtred);						   
+				   
+
+elseif ( ARGS.LimexNStages==1) then
+-- STANDARD (implicit Euler) time-stepping.
+-- util.SolveLinearTimeProblem(u, domainDiscT, lsolver, myStepCallback0, "PoroElasticityTransient",
+--                 "ImplEuler", 1, startTime, endTime, dt, dtmin, dtred);   
 else
 		   
 -- LIMEX time-stepping.
@@ -735,7 +758,7 @@ limex:attach_observer(luaobserver)
 
 
 -- Solve problem using LIMEX.
-local myclock = CuckooClock()
+
 myclock:tic()
 limex:apply(u, endTime, u, startTime)
 print("CDELTA="..myclock:toc())

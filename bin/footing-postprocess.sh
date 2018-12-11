@@ -84,17 +84,17 @@ cd ..
 
 # creates iterXX files
 
-CreateIterXX "P1P2_ass_gmg_cycleW" 
+#CreateIterXX "P1P2_ass_gmg_cycleW" 
 #CreateIterXX "P1P2_ass_gmg_cycleF" 
 CreateIterXX "P1P1stab_ass_gmg_cycleW" 
-#CreateIterXX "P1P1stab_ass_gmg_cycleF" 
+CreateIterXX "P1P1stab_ass_gmg_cycleF" 
+CreateIterXX "P1P1stab_ass_gmg_cycleV"
 
 
-
-CreateTable "P1P2_ass_gmg_cycleW" 
+#CreateTable "P1P2_ass_gmg_cycleW" 
 #CreateTable "P1P2_ass_gmg_cycleF" 
 CreateTable "P1P1stab_ass_gmg_cycleW" 
-#CreateTable "P1P1stab_ass_gmg_cycleF" 
-
+CreateTable "P1P1stab_ass_gmg_cycleF" 
+CreateTable "P1P1stab_ass_gmg_cycleV" 
 
 

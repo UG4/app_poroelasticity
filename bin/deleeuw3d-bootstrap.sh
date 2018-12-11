@@ -17,9 +17,12 @@ cd $CWD
 
 }
 
+SMOOTHER=vanka-ssc
+SMOOTHER=uzawa3
+
 mkdir "deLeeuw3D"
 NUMREFS=1
-biot_exec "deLeeuw3D/ref1" 2 "vanka-ssc"
+biot_exec "deLeeuw3D/ref1" 2 $SMOOTHER
 NUMREFS=2
-biot_exec "deLeeuw3D/ref2" 2 "vanka-ssc"
+biot_exec "deLeeuw3D/ref2" 2 $SMOOTHER
 

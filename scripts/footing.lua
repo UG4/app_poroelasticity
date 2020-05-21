@@ -66,7 +66,7 @@ function GenericAddStabilization(self, domainDisc)
      for i=1,#self.elemDiscParams do
         local _parami = self.elemDiscParams[i]
         local _gammai = (_parami.LAMBDA+2*_parami.MU)
-         print ("Adding Stabilization:"..stab/_gammai)
+         print ("GenericAddStabilization: "..stab/_gammai.." on ".._parami["VOLUME"])
          self.stabDisc[i] = ConvectionDiffusionStabFE("p", _parami["VOLUME"], stab/_gammai)
          domainDisc:add(self.stabDisc[i])
      end -- for
@@ -85,21 +85,25 @@ function GenericFootingInit(self)
   local Kdim = {}
   local Kv = 2.0*E/(1+nu)*(1.0-nu)/(1.0-2.0*nu)                                -- uni-axial drained bulk modulus 
   
+  local _LAME_LAMBDA=E*nu/((1.0+nu)*(1.0-2.0*nu))
+  local _LAME_MU=0.5*E/(1+nu)
+   
   Kdim[1] = Kv
   Kdim[2] = Kv/(2.0-2.0*nu)
-  Kdim[3] = Kcomp
+  Kdim[3] = Kcomp*2.0 -- 2.0 = Wheeler& Mikelic convergence
   
   self.elemDiscParams[1] = { 
      VOLUME = "INNER",
      KAPPA = kappa/mu, 
-     LAMBDA=E*nu/((1.0+nu)*(1.0-2.0*nu)), 
-     MU = 0.5*E/(1+nu), 
+     LAMBDA= _LAME_LAMBDA, --E*nu/((1.0+nu)*(1.0-2.0*nu)), 
+     MU = _LAME_MU, -- 0.5*E/(1+nu), 
      ALPHA=alpha, 
      PHI= 0, 
-     THETA=(alpha*alpha)/Kdim[self.dim] 
+    --  THETA=(alpha*alpha)/Kdim[self.dim] 
+     THETA=0.5*(alpha*alpha)/(2.0*_LAME_MU/self.dim + _LAME_LAMBDA)  -- Wheeler & Mikelic
   }
   
-  print ("theta_stab= "..self.elemDiscParams[1].THETA)
+  print ("beta_stab= "..self.elemDiscParams[1].THETA)
 end
 
 
@@ -334,6 +338,8 @@ end
 footing3D = {
  
   gridName = "../grids/footing3D-tet.ugx",
+  -- gridName = "../grids/footing3D.ugx",
+  
   dim = 3,
   cpu = 1,
   
@@ -355,23 +361,26 @@ function footing3D:parse_cmd_args()
 end
 
 function footing3D:create_domain(numRefs, numPreRefs)
+  print("footing3D:create_domain")
   return util.CreateAndDistributeDomain(self.gridName, numRefs, numPreRefs, self.mandatorySubsets)
 end
 
 
 function footing3D:add_elem_discs(domainDisc, bStationary)
+  print("footing3D:add_elem_discs")
   CommonAddBiotElemDiscs(self, domainDisc, bStationary)
   GenericAddStabilization(self, domainDisc)
 end
 
 
 function footing3D:add_uzawa_discs(domainDisc)
+  print("footing3D:add_uzawa_discs")
   CommonAddMassMatrixDiscs(self, domainDisc)
 end
 
 --- Boundary conditions.
 function footing3D:add_boundary_conditions(domainDisc, bStationary)
- 
+ print("footing3D:add_boundary_conditions")
  local doStationary = bStationary or false
 
  local PaUnit=1.0
@@ -401,6 +410,7 @@ end
 
 -- Initialize all variables
 function footing3D:init(kperm, nporo, nu, cmedium, cfluid, csolid, volumetricweight)
+  print("footing3D:init")
   print ("WARNING: Ignoring all parameters")
   GenericFootingInit(self)
 end

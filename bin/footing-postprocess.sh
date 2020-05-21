@@ -5,8 +5,8 @@ function CreateIterXX {
 DIRNAME=$1
 echo "Changing to: $DIRNAME"
 cd $DIRNAME
-NUMREFS=1
-while [ $NUMREFS -le 3 ]
+NUMREFS=$2
+while [ $NUMREFS -le $3 ]
 do
 	if [ -d "ref$NUMREFS" ]; then
 		cd "ref$NUMREFS"
@@ -40,8 +40,8 @@ cd $DIRNAME
 
 
 # ls;
-NUMREFS=1
-while [ $NUMREFS -le 3 ]
+NUMREFS=$2
+while [ $NUMREFS -le $3 ]
 do
 	cd "ref$NUMREFS"
 	echo "ref$NUMREFS"
@@ -83,18 +83,20 @@ cd ..
 # --with-vtk
 
 # creates iterXX files
+FROM=4
+TO=4
 
-#CreateIterXX "P1P2_ass_gmg_cycleW" 
-#CreateIterXX "P1P2_ass_gmg_cycleF" 
-CreateIterXX "P1P1stab_ass_gmg_cycleW" 
-CreateIterXX "P1P1stab_ass_gmg_cycleF" 
-CreateIterXX "P1P1stab_ass_gmg_cycleV"
+#CreateIterXX "P1P2_ass_gmg_cycleW" $FROM $TO
+#CreateIterXX "P1P2_ass_gmg_cycleF" $FROM $TO
+CreateIterXX "P1P1stab_ass_gmg_cycleW" $FROM $TO
+CreateIterXX "P1P1stab_ass_gmg_cycleF" $FROM $TO
+#CreateIterXX "P1P1stab_ass_gmg_cycleV" $FROM $TO
 
 
-#CreateTable "P1P2_ass_gmg_cycleW" 
-#CreateTable "P1P2_ass_gmg_cycleF" 
-CreateTable "P1P1stab_ass_gmg_cycleW" 
-CreateTable "P1P1stab_ass_gmg_cycleF" 
-CreateTable "P1P1stab_ass_gmg_cycleV" 
+#CreateTable "P1P2_ass_gmg_cycleW" $FROM $TO
+#CreateTable "P1P2_ass_gmg_cycleF" $FROM $TO
+CreateTable "P1P1stab_ass_gmg_cycleW" $FROM $TO
+CreateTable "P1P1stab_ass_gmg_cycleF" $FROM $TO
+#CreateTable "P1P1stab_ass_gmg_cycleV" $FROM $TO
 
 

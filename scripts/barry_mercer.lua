@@ -170,6 +170,58 @@ barrymercer2D_tri = {
 
 }
 
+
+-- Initialize all variables
+function barrymercer2D_tri:init(kperm, nporo, nu, cmedium, cfluid, csolid, volumetricweight)
+  print ("WARNING: Ignoring all parameters")
+  
+  
+  local E = 1e+5        -- Young's elasticity modulus [Pa]
+  local nu = 0.4        -- Poisson"s ratio  [1]
+  local kappa = 1e-5   --  permeability [m*m]  
+  local muf = 1e-3       -- Pa*s    => Diff Coeff 1e-9
+  local alpha = 1.0
+  local Kcomp = E/(3*(1-2*nu))  -- compression (or bulk) modulus)
+  
+  local Kdim = {}
+  local Kv = 2.0*E/(1+nu)*(1.0-nu)/(1.0-2.0*nu)                                -- uni-axial drained bulk modulus 
+  
+  Kdim[1] = Kv
+  Kdim[2] = Kv/(2.0-2.0*nu)
+  Kdim[3] = Kcomp
+  
+  self.elemDiscParams[1] = { 
+     VOLUME = "INNER",
+     KAPPA = kappa/muf, 
+     LAMBDA=(E*nu)/((1.0+nu)*(1.0-2.0*nu)), 
+     MU = 0.5*E/(1+nu), 
+     ALPHA=alpha, 
+     PHI= 0, 
+     THETA=(alpha*alpha)/Kdim[self.dim] }
+  
+  print ("theta_stab= "..self.elemDiscParams[1].THETA)
+  
+  BARRY_MERCER_DATA.KAPPA =  self.elemDiscParams[1].KAPPA
+  BARRY_MERCER_DATA.LAMBDA =  self.elemDiscParams[1].LAMBDA
+  BARRY_MERCER_DATA.MU =  self.elemDiscParams[1].MU
+ 
+  local beta = self.elemDiscParams[1].KAPPA*(self.elemDiscParams[1].LAMBDA + 2*self.elemDiscParams[1].MU)
+  self.elemDiscParams[1].BETA =  beta
+  BARRY_MERCER_DATA.BETA = beta
+   print ("beta= "..beta)
+  
+  -- Reset stabilization
+  if (self.vStab and self.vStab ~= 0.0) then
+      print ("vStab(preReset)="..self.vStab)
+      local lambda = self.elemDiscParams[1].LAMBDA
+      local G = self.elemDiscParams[1].MU
+      local factor = lambda+2.0*G
+      self.vStab = self.vStab/factor
+      print ("vStab(postReset)="..self.vStab)
+  end
+  
+end
+
 -- Read parameters from command line.
 function barrymercer2D_tri:parse_cmd_args()
 
@@ -210,7 +262,7 @@ end
 function barrymercer2D_tri:add_elem_discs(domainDisc, bStationary)
 
   -- Add standard element discs
-  CommonAddBiotElemDiscs(self, domainDisc, bStationary)
+  CommonAddBiotElemDiscs(self, domainDisc, bStationary, self.uorder, self.porder)
   
   -- Add a singular source 
   -- self.flowDisc[1]:set_source("BarryMercerSource2D")
@@ -250,7 +302,8 @@ function barrymercer2D_tri:add_boundary_conditions(domainDisc, bStationary)
  local doStationary = bStationary or false
 
   -- Drainage zone.
-  local dirichlet = DirichletBoundary(false, true)
+  -- local dirichlet = DirichletBoundary(false, true)
+  local dirichlet = DirichletBoundary(false)
   dirichlet:add(0.0, "p", "VERTICAL,HORIZONTAL,CORNERS")
   dirichlet:add(0.0, "ux", "HORIZONTAL,CORNERS")
   dirichlet:add(0.0, "uy", "VERTICAL,CORNERS")
@@ -259,56 +312,6 @@ function barrymercer2D_tri:add_boundary_conditions(domainDisc, bStationary)
  
 end
 
--- Initialize all variables
-function barrymercer2D_tri:init(kperm, nporo, nu, cmedium, cfluid, csolid, volumetricweight)
-  print ("WARNING: Ignoring all parameters")
-  
-  
-  local E = 1e+5        -- Young's elasticity modulus [Pa]
-  local nu = 0.1        -- Poisson"s ratio  [1]
-  local kappa = 1e-5   --  permeability [m*m]  
-  local mu = 1e-3       -- Pa*s    => Diff Coeff 1e-9
-  local alpha = 1.0
-  local Kcomp = E/(3*(1-2*nu))  -- compression (or bulk) modulus)
-  
-  local Kdim = {}
-  local Kv = 2.0*E/(1+nu)*(1.0-nu)/(1.0-2.0*nu)                                -- uni-axial drained bulk modulus 
-  
-  Kdim[1] = Kv
-  Kdim[2] = Kv/(2.0-2.0*nu)
-  Kdim[3] = Kcomp
-  
-  self.elemDiscParams[1] = { 
-    VOLUME = "INNER",
-     KAPPA = kappa/mu, 
-     LAMBDA=E*nu/(1.0+nu)*(1.0-2.0*nu), 
-     MU = E/(1+nu), 
-     ALPHA=alpha, 
-     PHI= 0, 
-     THETA=(alpha*alpha)/Kdim[self.dim] }
-  
-  print ("theta_stab= "..self.elemDiscParams[1].THETA)
-  
-  BARRY_MERCER_DATA.KAPPA =  self.elemDiscParams[1].KAPPA
-  BARRY_MERCER_DATA.LAMBDA =  self.elemDiscParams[1].LAMBDA
-  BARRY_MERCER_DATA.MU =  self.elemDiscParams[1].MU
- 
-  local beta = self.elemDiscParams[1].KAPPA*(self.elemDiscParams[1].LAMBDA + 2*self.elemDiscParams[1].MU)
-  self.elemDiscParams[1].BETA =  beta
-  BARRY_MERCER_DATA.BETA = beta
-   print ("beta= "..beta)
-  
-  -- Reset stabilization
-  if (self.vStab and self.vStab ~= 0.0) then
-      print ("vStab(preReset)="..self.vStab)
-      local lambda = self.elemDiscParams[1].LAMBDA
-      local G = self.elemDiscParams[1].MU
-      local factor = lambda+2.0*G
-      self.vStab = self.vStab/factor
-      print ("vStab(postReset)="..self.vStab)
-  end
-  
-end
 
 function barrymercer2D_tri:get_char_time()
   local consolidation = self.elemDiscParams[1].KAPPA* (self.elemDiscParams[1].LAMBDA + 2*self.elemDiscParams[1].MU)
@@ -390,9 +393,11 @@ function barrymercer2D_tri:post_processing(u, step, time)
   
   
   uref:set(0.0)
-  Interpolate("BarryMercerPressure2D", uref, "p", "INNER,SINGULARITY", time) -- "SINGULARITY"
-  Interpolate("BarryMercerVelX2D", uref, "ux", "INNER,SINGULARITY", time) -- "SINGULARITY"
-  Interpolate("BarryMercerVelY2D", uref, "uy", "INNER,SINGULARITY", time) -- "SINGULARITY"
+  Interpolate("BarryMercerPressure2D", uref, "p", "INNER,SINGULARITY,CORNERS,HORIZONTAL,VERTICAL", time) -- "SINGULARITY"
+  Interpolate("BarryMercerVelX2D", uref, "ux", "INNER,SINGULARITY,CORNERS,HORIZONTAL,VERTICAL", time) -- "SINGULARITY"
+  Interpolate("BarryMercerVelY2D", uref, "uy", "INNER,SINGULARITY,CORNERS,HORIZONTAL,VERTICAL", time) -- "SINGULARITY"
+ -- Interpolate("BarryMercerVelX2D", uref, "ux") -- "SINGULARITY"
+ -- Interpolate("BarryMercerVelY2D", uref, "uy") -- "SINGULARITY"
   vtk:print("BarryMercer2D_Ref.vtu", uref, step, time)
   normSol = ComputeNorms(u)
   normRef = ComputeNorms(uref)
@@ -504,3 +509,4 @@ end -- listOfTImes
 BARRY_MERCER_DATA.NAPPROX = origOrder 
 -- quit() -- debugging
 end
+

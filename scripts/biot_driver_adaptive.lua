@@ -11,8 +11,8 @@ ug_load_script("ug_util.lua")
 ug_load_script("util/load_balancing_util_2.lua") 
 ug_load_script("util/profiler_util.lua")
 ug_load_script("plugins/Limex/limex_util.lua")
-
 ug_load_script("generic.lua")
+
 ug_load_script("cryer.lua")
 ug_load_script("footing.lua")
 ug_load_script("barry_mercer.lua")
@@ -44,6 +44,7 @@ local ARGS = {
   useDebugIter =  util.HasParamOption("--with-debug-iter", "Activate debug solver."),
   -- doCheck =  util.HasParamOption("--with-check", ""),
  
+ 
   bSteadyStateMechanics = not util.HasParamOption("--with-transient-mechanics"), -- OPTIONAL: transient mechanics
  
   MGCycleType = util.GetParam("--mg-cycle-type", "W", "V,F,W"),
@@ -55,6 +56,7 @@ local ARGS = {
   -- LIMEX
   LimexTOL     = util.GetParamNumber("--limex-tol", 1e-3, "TOL"),
   LimexNStages = util.GetParamNumber("--limex-num-stages", 4, "number of LIMEX stages q"),
+  
   
 }
 
@@ -93,7 +95,6 @@ local problemList = {
   ["footing3D"] = footing3D,
   
   ["bm2D_tri"] = barrymercer2D_tri,
-  ["bm2D_new"] = BarryMercerProblem2dCPU1("ux,uy", "p"),
 }
 
 local problem = problemList[ARGS.problemID]
@@ -102,17 +103,11 @@ if (not problem) then
   quit()
 end
 
-if (problem.parse_cmd_args) then
-  problem:parse_cmd_args()
-end
-
+problem:parse_cmd_args()
 --problem:init(kperm, poro, nu, 1.0/Kmedium, 1.0/Kfluid, 0.0)
-if(problem.init) then
-  problem:init(kperm, poro, nu, 1.0/Kmedium, 0.0, 0.0)
-end
+problem:init(kperm, poro, nu, 1.0/Kmedium, 0.0, 0.0)
 
-print("Get charTime")
-local charTime = problem:get_char_time()  -- implemented by C++ object
+local charTime = problem:get_char_time()
 print("charTime="..charTime)
   
 startTime = 0.0
@@ -141,12 +136,12 @@ local doTransient = true
 ----------------------------------
 ----------------------------------
 
-local dim = problem.dim or 2
-local cpu = problem.cpu or 1    -- default: block dim+1
+local dim = problem.dim
+local cpu = problem.cpu or dim+1    -- default: block
 
 -- Order for Ansatz functions.
-local porder = problem.porder or problem:get_porder() or 1
-local uorder = problem.uorder or problem:get_uorder() or (porder+1)
+local porder = problem.porder or 1
+local uorder = problem.uorder or (porder+1)
 
 InitUG(dim, AlgebraType("CPU", cpu));
 
@@ -196,11 +191,11 @@ local balancerDesc = {
 
 -- Create, Load, Refine and Distribute Domain
 
-local gridName = problem.gridName or problem:get_gridname()
+-- local gridName = problem.gridName
 -- local dom = problem:create_domain(numRefs, numPreRefs)
 
-local mandatorySubsets = problem.mandatorySubsets or nil
-local dom = util.CreateDomain(gridName, 0, mandatorySubsets)
+local mandatorySubsets = problem.mandatorySubsets
+local dom = util.CreateDomain(problem.gridName, 0, mandatorySubsets)
 util.refinement.CreateRegularHierarchy(dom, numRefs, true, balancerDesc)
 
 
@@ -242,20 +237,17 @@ print("... done!")
 --------------------------------------------------------------------------------
 print("FE discretization...") 
 local bSteadyStateMechanics = ARGS.bSteadyStateMechanics -- true
-
--- For computing consistent initial values.
 local domainDisc0 = DomainDiscretization(approxSpace)
-problem:add_elem_discs(domainDisc0, bSteadyStateMechanics)  -- implemented by C++ object
-problem:add_boundary_conditions(domainDisc0, bSteadyStateMechanics)  -- implemented by C++ object
+problem:add_elem_discs(domainDisc0, bSteadyStateMechanics)
+problem:add_boundary_conditions(domainDisc0, bSteadyStateMechanics)
 
--- For time-dependent problem.
+
 local domainDiscT = DomainDiscretization(approxSpace)
-problem:add_elem_discs(domainDiscT, bSteadyStateMechanics)  -- implemented by C++ object
-problem:add_boundary_conditions(domainDiscT, bSteadyStateMechanics)  -- implemented by C++ object
+problem:add_elem_discs(domainDiscT, bSteadyStateMechanics)
+problem:add_boundary_conditions(domainDiscT, bSteadyStateMechanics)
 
--- For Uzawa fixed-stress smoother.
 local uzawaSchurUpdateDisc = DomainDiscretization(approxSpace)
-problem:add_uzawa_discs(uzawaSchurUpdateDisc, bSteadyStateMechanics)  -- implemented by C++ object
+problem:add_uzawa_discs(uzawaSchurUpdateDisc)
 print("done!")
 
 
@@ -330,6 +322,7 @@ function createUzawaIteration(sSchurCmp, aiForward, aiSchur, aiBackward, uzawaSc
 
   uzawa:set_schur_operator_update(uzawaSchurUpdateOp, weight)
   -- uzawa:set_debug(dbgWriter)
+  
   return uzawa
 end
 
@@ -432,7 +425,7 @@ gmg:set_postsmoother(postSmoother)
 gmg:set_cycle_type(ARGS.MGCycleType) -- 1:V, 2:W -- "F"
 gmg:set_num_presmooth(ARGS.MGNumSmooth)
 gmg:set_num_postsmooth(ARGS.MGNumSmooth)
-gmg:set_rap(problem.bRAP or true)  -- mandatory, if set_stationary
+gmg:set_rap(problem.bRAP)  -- mandatory, if set_stationary
 
 
 -- gmg:set_debug(dbgWriter) 
@@ -484,14 +477,9 @@ local fixedStressMG    = createUzawaIteration("p", nil, gmgU, gmgP, uzawaSchurUp
 
 --------------------------------
 -- debug solver /iter
---------------------------------
+--------------------------------u
+local p0 = problem.modelParameter.p0 or 1.0
 
-local p0 
-if (problem.modelParameter) then
- p0 = problem.modelParameter.p0 
-else 
- p0 =1.0
-end
 local cmpConvCheck = CompositeConvCheck(approxSpace)
 cmpConvCheck:set_component_check("ux", p0*1e-14, 1e-6)
 cmpConvCheck:set_component_check("uy", p0*1e-14, 1e-6)
@@ -623,7 +611,7 @@ if (dim == 3) then vtk:select({"ux", "uy", "uz"}, "uNodal") end
 local biotErrorEst 
 --if (false) then
 if (problem.error_estimator) then
-  biotErrorEst = problem:error_estimator() 
+  biotErrorEst = problem:error_estimator()
 else
   biotErrorEst = ScaledGridFunctionEstimator()
   biotErrorEst:add(L2ComponentSpace("p", 2))        -- L2 norm for p, 2nd order quadrature
@@ -730,8 +718,7 @@ elseif ( ARGS.LimexNStages==1) then
 -- STANDARD (implicit Euler) time-stepping.
 -- util.SolveLinearTimeProblem(u, domainDiscT, lsolver, myStepCallback0, "PoroElasticityTransient",
 --                 "ImplEuler", 1, startTime, endTime, dt, dtmin, dtred);   
-
-else --  ARGS.LimexNStages > 1
+else
 		   
 -- LIMEX time-stepping.
 	
@@ -743,10 +730,9 @@ newtonCheck:set_supress_unsuccessful(true)
 local limexDesc = {
   nstages = ARGS.LimexNStages,
   steps = {1,2,3,4,5,6,7,8,9,10},
-  
   domainDisc=domainDiscT,
+ 
   nonlinSolver = nlsolver,
-  
   tol = ARGS.LimexTOL,
   dt = dt,
   dtmin = dtMin,
@@ -770,6 +756,8 @@ limex:disable_matrix_cache()        -- This problem is linear
 --limex:set_time_derivative(udot)   -- 
 
 
+
+
 -- Create (& attach) observers.
 if (ARGS.useVTK) then
   local vtkFull = VTKOutput()
@@ -779,6 +767,7 @@ end
 
 local luaobserver = LuaCallbackObserver()
 
+
 function myLuaLimexPostProcess(step, time, currdt)
   print ("Time per step :"..stepClock:toc()) -- get time for last step 
   local usol=luaobserver:get_current_solution()
@@ -787,12 +776,14 @@ function myLuaLimexPostProcess(step, time, currdt)
   return 0;
 end
 
+
 luaobserver:set_callback("myLuaLimexPostProcess")
 limex:attach_observer(luaobserver)
 
 
 
 -- Solve problem using LIMEX.
+
 myclock:tic()
 limex:apply(u, endTime, u, startTime)
 print("CDELTA="..myclock:toc())

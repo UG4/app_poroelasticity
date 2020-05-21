@@ -2,7 +2,7 @@ generic = {}
 
 function CreateMassMatrixDiscs(param, dim)
 
-  print ("...for subset "..param.VOLUME)
+  print ("CreateMassMatrixDiscs:"..param.VOLUME)
   
   local theta = param.THETA or 0.0   -- this is: alpha^2/K
   print ("theta= "..theta)  
@@ -16,7 +16,7 @@ end
 
 function CreatePoissonMatrixDiscs(param, dim)
 
-  print ("...for subset "..param["VOLUME"])
+  print ("CreatePoissonMatrixDiscs:"..param["VOLUME"])
   
   local schurEqDisc = ConvectionDiffusion("p", param["VOLUME"], "fv1")
   schurEqDisc:set_diffusion(param["THETA"])
@@ -41,11 +41,11 @@ end
 
 
 
-function CreateBiotElemDiscs(param, dim, bSteadyState)
+function DEPRECATED_CreateBiotElemDiscs(param, dim, bSteadyState)
 
   local doSteadyState = bSteadyState or false
   -- define eqns for pressure,  displacement
-  print ("...for subset "..param["VOLUME"])
+  print ("CreateBiotElemDiscs: "..param["VOLUME"])
   
   -- elasticity
   print("=> const_lambda = "..param["LAMBDA"])
@@ -136,7 +136,7 @@ end
 
 
 -- Create elem discs for consistency
-function CreateConsistencyElemDiscs(param, dim, bSteadyState)
+function DEPRECATED_CreateConsistencyElemDiscs(param, dim, bSteadyState)
 
   local doSteadyState = bSteadyState or false
   -- define eqns for pressure,  displacement
@@ -190,16 +190,16 @@ function CreateConsistencyElemDiscs(param, dim, bSteadyState)
   -- adjust quadrature order
   if (dim==2) then
   
-    if (porder==1) then flowEqDisc:set_quad_order(4) end
-    if (uorder==2) then displacementEqDisc:set_quad_order(4) end
-  --  displacementEqDisc:set_quad_order(5)
+ --   if (porder==1) then flowEqDisc:set_quad_order(4) end
+  --  if (uorder==2) then displacementEqDisc:set_quad_order(4) end
+  -- displacementEqDisc:set_quad_order(5)
 
 
   elseif (dim == 3) then
-    --if (order == 1) then
-    --  displacementEqDisc:set_quad_order(2)  
+    if (uorder == 1) then
+      displacementEqDisc:set_quad_order(2)  
     --3:#ip`s: 6, 2:#ip`s: 8 
-    --end
+    end
     if (uorder == 2) then
     displacementEqDisc:set_quad_order(5)  -- 7
     flowEqDisc:set_quad_order(3) --7
@@ -226,14 +226,23 @@ end
 
 
 -- Creates discretization for stiffness matrix.
-function CommonAddBiotElemDiscs(self, domainDisc, bStationary)
+function CommonAddBiotElemDiscs(self, domainDisc,  bStationary, uorder, porder)
   
   self.flowDisc = {}
   self.dispDisc = {}
   
+  local factory = BiotElemDiscFactory()
   -- forward call to 'generic.lua'
   for i=1,#self.elemDiscParams do
-    self.flowDisc[i], self.dispDisc[i] = CreateBiotElemDiscs(self.elemDiscParams[i], self.dim, bStationary)
+    
+    -- self.flowDisc[i], self.dispDisc[i] = DEPRECATED_CreateBiotElemDiscs(self.elemDiscParams[i], self.dim, bStationary)
+    local param = self.elemDiscParams[i]
+    local ucmps="ux,uy"
+    if (dim==3) then ucmps = ucmps+",uz" end
+    
+    factory:CreateElemDiscs(BiotSubsetParameters(param["VOLUME"], param["ALPHA"], param["KAPPA"], param["PHI"], param["MU"], param["LAMBDA"], param["BETA"]),
+                                ucmps, uorder, self.dispDisc[i], "p", porder, self.flowDisc[i], bStationary)
+    
     domainDisc:add(self.flowDisc[i])
     domainDisc:add(self.dispDisc[i])
   end
@@ -247,9 +256,7 @@ function CommonAddBiotStabDiscs(self, domainDisc, bStationary)
   local stab = self.vStab or 0.0;
   if (stab==0.0) then return end
   
-  
   -- forward call to 'generic.lua'
-  
   if (bStationary == false) then print ("ERROR: Only implemented for Mass matrix!") return quit; end;
      
   for i=1,#self.elemDiscParams do
@@ -258,8 +265,6 @@ function CommonAddBiotStabDiscs(self, domainDisc, bStationary)
     domainDisc:add(self.stabDisc[i])
   end
 end
-
-
 
 
 -- Creates discretization for mass matrix.

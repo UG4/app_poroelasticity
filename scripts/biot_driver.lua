@@ -7,15 +7,31 @@
 --
 ------------------------------------------------------------------------------
 
+-- TODO: move to util
+function script_path()
+   local str = debug.getinfo(2, "S").source:sub(2)
+   return str:match("(.*/)")
+end
+
+
+-- Expand path.
+local myPath =  script_path()
+print(myPath)
+package.path = package.path..";".. myPath.."/../config/?.lua;".. myPath.."/?.lua"
+
+
+
 ug_load_script("ug_util.lua")
 ug_load_script("util/load_balancing_util_2.lua") 
 ug_load_script("util/profiler_util.lua")
 ug_load_script("plugins/Limex/limex_util.lua")
 
+
+-- 
 ug_load_script("generic.lua")
 ug_load_script("cryer.lua")
 ug_load_script("footing.lua")
-ug_load_script("barry_mercer.lua")
+ug_load_script("../config/barry_mercer.lua")
 
 
 -- ug_load_script("mandel.lua")
@@ -83,6 +99,7 @@ print ("Kfluid  = "..Kfluid)
 
 --deleeuw2d--deleeuw2d -- cryer3d --cryer2d -- mandel3d --, mandel--, cryer3d
 local problemList = {
+  -- legacy style
   ["deleeuw2d"] = deleeuw2d,
   ["deleeuw3d"] = deleeuw3d,
   ["deleeuw3dTet"] = deleeuw3dTet,
@@ -93,6 +110,8 @@ local problemList = {
   ["footing3D"] = footing3D,
   
   ["bm2D_tri"] = barrymercer2D_tri,
+  
+  -- new style
   ["bm2D_new"] = BarryMercerProblem2dCPU1("ux,uy", "p"),
 }
 
@@ -213,6 +232,8 @@ util.refinement.CreateRegularHierarchy(dom, numRefs, true, balancerDesc)
 --  Approximation Space
 -----------------------------------------------------------------
 
+-- TODO: Go C++
+function CreateBiotApproxSpace(dom, dim, uorder, porder)
 print("Create ApproximationSpace... ")
 local approxSpace = ApproximationSpace(dom) 
 approxSpace:add_fct("p", "Lagrange", porder) 
@@ -235,7 +256,10 @@ approxSpace:print_statistic()
 approxSpace:print_layout_statistic()
 approxSpace:print_local_dof_statistic(2)              
 print("... done!")
+return approxSpace
+end 
 
+local approxSpace = CreateBiotApproxSpace(dom, dim, uorder, porder)
 
 --------------------------------------------------------------------------------
 -- Problem Setup
@@ -401,6 +425,7 @@ end
 
 -------------------------
 -- create GMG
+-- TODO: Move to 
 -------------------------
 
 -- Base Solver

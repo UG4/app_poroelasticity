@@ -240,8 +240,8 @@ function CommonAddBiotElemDiscs(self, domainDisc,  bStationary, uorder, porder)
     local ucmps="ux,uy"
     if (dim==3) then ucmps = ucmps+",uz" end
     
-    factory:CreateElemDiscs(BiotSubsetParameters(param["VOLUME"], param["ALPHA"], param["KAPPA"], param["PHI"], param["MU"], param["LAMBDA"], param["BETA"]),
-                                ucmps, uorder, self.dispDisc[i], "p", porder, self.flowDisc[i], bStationary)
+    local obj = BiotSubsetParameters(param["VOLUME"], param["ALPHA"], param["KAPPA"], param["PHI"], param["MU"], param["LAMBDA"], param["BETA"])
+    factory:CreateElemDiscs(obj, ucmps, uorder, self.dispDisc[i], "p", porder, self.flowDisc[i], bStationary)
     
     domainDisc:add(self.flowDisc[i])
     domainDisc:add(self.dispDisc[i])

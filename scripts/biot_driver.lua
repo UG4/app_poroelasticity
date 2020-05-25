@@ -398,15 +398,15 @@ local postSmoother
 if (ARGS.MGSmootherType == "uzawa") then
   preSmoother  = uzawaForward1
   postSmoother = uzawaBackward1
+  elseif (ARGS.MGSmootherType == "uzawa0") then
+  preSmoother  = uzawaForward[0]
+  postSmoother = uzawaBackward[0]
 elseif (ARGS.MGSmootherType == "uzawa2") then
   preSmoother  = uzawaForward2
   postSmoother = uzawaBackward2
 elseif (ARGS.MGSmootherType == "uzawa3") then
   preSmoother  = uzawaForward[3]
   postSmoother = uzawaBackward[3]
-elseif (ARGS.MGSmootherType == "uzawa0") then
-  preSmoother  = uzawaForward[0]
-  postSmoother = uzawaBackward[0]
 elseif (ARGS.MGSmootherType == "uzawa4") then
   preSmoother  = uzawaForward[4]
   postSmoother = uzawaBackward[4]
@@ -668,9 +668,7 @@ end
 --------------------------------------------------------------------------------	
 if (doTransient) then
 
-local lineSearch = StandardLineSearch();
-lineSearch:set_maximum_steps(6)
-lineSearch:set_accept_best(true)
+
 
 local newtonCheck = ConvCheck()
 newtonCheck:set_maximum_steps(10)
@@ -690,7 +688,14 @@ newtonCheck2:set_maximum_steps(2)
 local newtonSolver = NewtonSolver()
 newtonSolver:set_linear_solver(lsolver)
 newtonSolver:set_convergence_check(newtonCheck)
---newtonSolver:set_line_search(lineSearch)
+
+--[[
+local lineSearch = StandardLineSearch();
+lineSearch:set_maximum_steps(6)
+lineSearch:set_accept_best(true)
+newtonSolver:set_line_search(lineSearch)
+--]]
+
 --newtonSolver:set_debug(dbgWriter)
 
 local nlsolver = newtonSolver
@@ -734,7 +739,7 @@ end
 
 if ( ARGS.LimexNStages==0) then
 
-  -- TEST SUITE for linear solver.
+  -- Execute linear solver test suite.
   convCheck:set_reduction(1e-10) 
   convCheck:set_maximum_steps(100)
 
@@ -752,11 +757,17 @@ if ( ARGS.LimexNStages==0) then
 				   
 
 elseif ( ARGS.LimexNStages==1) then
--- STANDARD (implicit Euler) time-stepping.
--- util.SolveLinearTimeProblem(u, domainDiscT, lsolver, myStepCallback0, "PoroElasticityTransient",
---                 "ImplEuler", 1, startTime, endTime, dt, dtmin, dtred);   
+  -- STANDARD (implicit Euler) time-stepping.
+  local bCheckpointing = false
+  util.SolveLinearTimeProblem(u, domainDiscT, lsolver, nil, "PoroElasticityTransient",
+                   "ImplEuler", 1, startTime, endTime, dt, dtMin, 0.5, 
+                    bCheckpointing, myStepCallback0);   
+                   
+  --util.SolveNonlinearTimeProblem(u, domainDiscT, nlsolver, myStepCallback0, "PoroElasticityTransient",
+  --             "ImplEuler", 1, startTime, endTime, dt, dtMin, 0.5); 
 
-else --  ARGS.LimexNStages > 1
+else 
+--  ARGS.LimexNStages > 1
 		   
 -- LIMEX time-stepping.
 	

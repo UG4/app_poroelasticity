@@ -7,18 +7,9 @@
 --
 ------------------------------------------------------------------------------
 
--- TODO: move to util
-function script_path()
-   local str = debug.getinfo(2, "S").source:sub(2)
-   return str:match("(.*/)")
-end
-
-
 -- Expand path.
-local myPath =  script_path()
-print(myPath)
+local myPath = ug_get_current_path()
 package.path = package.path..";".. myPath.."/../config/?.lua;".. myPath.."/?.lua"
-
 
 
 ug_load_script("ug_util.lua")
@@ -34,6 +25,7 @@ ug_load_script("footing.lua")
 ug_load_script("../config/barry_mercer.lua")
 
 
+util.biot.CheckAssertions()
 -- ug_load_script("mandel.lua")
 
 
@@ -210,11 +202,7 @@ local balancerDesc = {
 } -- balancerDesc
    
 
-
-
-
 -- Create, Load, Refine and Distribute Domain
-
 local gridName = problem.gridName or problem:get_gridname()
 -- local dom = problem:create_domain(numRefs, numPreRefs)
 
@@ -223,43 +211,10 @@ local dom = util.CreateDomain(gridName, 0, mandatorySubsets)
 util.refinement.CreateRegularHierarchy(dom, numRefs, true, balancerDesc)
 
 
-
-
---local refiner =  GlobalDomainRefiner(dom)
---refiner:refine();
---refiner:refine();
 -----------------------------------------------------------------
 --  Approximation Space
 -----------------------------------------------------------------
-
--- TODO: Go C++
-function CreateBiotApproxSpace(dom, dim, uorder, porder)
-print("Create ApproximationSpace... ")
-local approxSpace = ApproximationSpace(dom) 
-approxSpace:add_fct("p", "Lagrange", porder) 
-
-if false then 
-  -- Does not work due to registration issues in SmallStrain mechanics.
-  uorder=1
-  approxSpace:add_fct("ux", "mini", 1)          
-  approxSpace:add_fct("uy", "mini", 1)  
-else
-  local utype = "Lagrange" --"Lagrange"  --"mini" -- "Lagrange"
-  approxSpace:add_fct("ux", utype, uorder)          
-  approxSpace:add_fct("uy", utype, uorder)   
-  if (dim==3) then approxSpace:add_fct("uz", utype, uorder) end
-end
-
-approxSpace:init_levels()
-approxSpace:init_top_surface()
-approxSpace:print_statistic()
-approxSpace:print_layout_statistic()
-approxSpace:print_local_dof_statistic(2)              
-print("... done!")
-return approxSpace
-end 
-
-local approxSpace = CreateBiotApproxSpace(dom, dim, uorder, porder)
+local approxSpace = util.biot.CreateApproxSpace(dom, dim, uorder, porder)
 
 --------------------------------------------------------------------------------
 -- Problem Setup
@@ -291,9 +246,11 @@ local u = GridFunction(approxSpace)
 local dbgVector=u:clone()
 --------------------------------------------------------------------------------
 
+
 ----------------------------------------
 -- create algebraic Preconditioner
 ----------------------------------------
+
 local jac = Jacobi()
 jac:set_damp(0.66)
 local gs = GaussSeidel()
@@ -511,12 +468,12 @@ local fixedStressMG    = createUzawaIteration("p", nil, gmgU, gmgP, uzawaSchurUp
 -- debug solver /iter
 --------------------------------
 
-local p0 
-if (problem.modelParameter) then
- p0 = problem.modelParameter.p0 
-else 
- p0 =1.0
+local p0 = 1.0
+if (problem.modelParameter and problem.modelParameter.p0) then 
+  p0 = problem.modelParameter.p0 
 end
+
+
 local cmpConvCheck = CompositeConvCheck(approxSpace)
 cmpConvCheck:set_component_check("ux", p0*1e-14, 1e-6)
 cmpConvCheck:set_component_check("uy", p0*1e-14, 1e-6)
@@ -541,7 +498,6 @@ cmpConvCheck2 = ConvCheck(200, 1e-25, 1e-20)
 local dbgSolver = LinearSolver()
 dbgSolver:set_preconditioner(gmg) -- cgs, gmg, uzawa
 dbgSolver:set_convergence_check(cmpConvCheck2)
---dbgSolver:set_debug(dbgWriter)
 dbgSolver:set_convergence_check(cmpConvCheck)
 
 local dbgIter= DebugIterator()
@@ -646,17 +602,10 @@ if (dim == 3) then vtk:select({"ux", "uy", "uz"}, "uNodal") end
 
 -- Init error estimator.
 local biotErrorEst 
---if (false) then
 if (problem.error_estimator) then
   biotErrorEst = problem:error_estimator() 
 else
-  biotErrorEst = ScaledGridFunctionEstimator()
-  biotErrorEst:add(L2ComponentSpace("p", 2))        -- L2 norm for p, 2nd order quadrature
-  -- [[ 
-  biotErrorEst:add(H1SemiComponentSpace("ux", 4))  
-  biotErrorEst:add(H1SemiComponentSpace("uy", 4)) 
-  if (dim==3) then biotErrorEst:add(H1SemiComponentSpace("uz", 4)) end
-  --]]
+  biotErrorEst = util.biot.CreateDefaultErrorEst(dim)
 end
 
 
@@ -732,7 +681,7 @@ if (( ARGS.LimexNStages > 0)) then
   util.SolveNonlinearTimeProblem(u, domainDisc0, nlsolver, myStepCallback0, "PoroElasticityInitial",
                "ImplEuler", 1, startTime, dt0, dt0, dt0, dtRed); 
                
- -- quit()
+
 end
 
 

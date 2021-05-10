@@ -51,7 +51,7 @@ function DEPRECATED_CreateBiotElemDiscs(param, dim, bSteadyState)
   print("=> const_lambda = "..param["LAMBDA"])
   print("=> const_mu     = "..param["MU"])
   
-  
+  -- quasi-static Bio
   print("=> const_alpha  = "..param["ALPHA"])
   print("=> const_Phi    = "..param["PHI"])
   print("=> const_kappa  = "..param["KAPPA"])
@@ -231,20 +231,35 @@ function CommonAddBiotElemDiscs(self, domainDisc,  bStationary, uorder, porder)
   self.flowDisc = {}
   self.dispDisc = {}
   
-  local factory = BiotElemDiscFactory()
-  -- forward call to 'generic.lua'
+
+  -- NEW C++ style
+  local ucmps="ux,uy"
+  if (dim==3) then ucmps = ucmps + ",uz" end
+  local factory = BiotElemDiscFactory(ucmps, uorder, "p", porder, bStationary)
+  
+  -- Create element discretizations.
   for i=1,#self.elemDiscParams do
+     local param = self.elemDiscParams[i]
     
-    -- self.flowDisc[i], self.dispDisc[i] = DEPRECATED_CreateBiotElemDiscs(self.elemDiscParams[i], self.dim, bStationary)
-    local param = self.elemDiscParams[i]
-    local ucmps="ux,uy"
-    if (dim==3) then ucmps = ucmps+",uz" end
-    
-    local obj = BiotSubsetParameters(param["VOLUME"], param["ALPHA"], param["KAPPA"], param["PHI"], param["MU"], param["LAMBDA"], param["BETA"])
-    factory:CreateElemDiscs(obj, ucmps, uorder, self.dispDisc[i], "p", porder, self.flowDisc[i], bStationary)
-    
+    if (false) then
+      -- Old LUA style (i.e. forward call to 'generic.lua')
+      self.flowDisc[i], self.dispDisc[i] = DEPRECATED_CreateBiotElemDiscs(param, self.dim, bStationary)
+    else
+      -- New C++ style 
+      -- TODO: -> JSON-style init
+      local biotparams = BiotSubsetParameters(param["VOLUME"], param["ALPHA"], param["KAPPA"], param["PHI"], param["LAMBDA"], param["MU"], param["THETA"])
+      local jstringTest = util.json.encode(param)
+      print(jstringTest)
+
+      local biot_disc = factory:create_elem_discs(biotparams) 
+      self.dispDisc[i] = biot_disc:displacement_disc()
+      self.flowDisc[i] = biot_disc:pressure_disc()
+    end
+   
+    -- Add to domain disc.
     domainDisc:add(self.flowDisc[i])
     domainDisc:add(self.dispDisc[i])
+    
   end
 end
 

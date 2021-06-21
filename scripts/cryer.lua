@@ -803,7 +803,8 @@ local neumannX = NeumannBoundaryFE("ux")
  
   if (self.bAdjustTransfers) then print ("Dirichlet w/ adjusting transfers") end
   
-  local dirichlet = DirichletBoundary(false, self.bAdjustTransfers)
+  -- local dirichlet = DirichletBoundary(false, self.bAdjustTransfers)
+  local dirichlet = DirichletBoundary(false)
   dirichlet:add(0.0, "p", "RIM,EAST,WEST,NORTH,SOUTH")
   
   dirichlet:add(0.0, "ux", "CENTER, NORTH, SOUTH")
@@ -956,7 +957,8 @@ local neumannX = NeumannBoundaryFE("ux")
  domainDisc:add(neumannX)
  domainDisc:add(neumannY)
  
-  local dirichlet = DirichletBoundary(false, true)
+ -- local dirichlet = DirichletBoundary(false, true)
+  local dirichlet = DirichletBoundary(false)
   dirichlet:add(0.0, "p", "RIM,EAST,WEST,NORTH,SOUTH")
 
   dirichlet:add(0.0, "ux", "CENTER")
@@ -1063,7 +1065,8 @@ local neumannX = NeumannBoundaryFE("ux")
  domainDisc:add(neumannX)
  domainDisc:add(neumannY)
  
-  local dirichlet = DirichletBoundary(true, false) -- dirichlet columns, adjust interpolation 
+ -- local dirichlet = DirichletBoundary(true, false) -- dirichlet columns, adjust interpolation 
+   local dirichlet = DirichletBoundary(true) -- dirichlet columns, adjust interpolation 
   dirichlet:add(0.0, "p", "RIM")
 
   dirichlet:add(0.0, "ux", "CENTER")

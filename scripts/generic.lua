@@ -226,7 +226,7 @@ end
 
 
 -- Creates discretization for stiffness matrix.
-function CommonAddBiotElemDiscs(self, domainDisc,  bStationary, uorder, porder)
+function CommonAddBiotElemDiscs(self, domainDisc,  bStationary)
   
   self.flowDisc = {}
   self.dispDisc = {}
@@ -235,7 +235,7 @@ function CommonAddBiotElemDiscs(self, domainDisc,  bStationary, uorder, porder)
   -- NEW C++ style
   local ucmps="ux,uy"
   if (dim==3) then ucmps = ucmps + ",uz" end
-  local factory = BiotElemDiscFactory(ucmps, uorder, "p", porder, bStationary)
+  local factory = BiotElemDiscFactory(ucmps, self.uorder, "p", self.porder, bStationary)
   
   -- Create element discretizations.
   for i=1,#self.elemDiscParams do

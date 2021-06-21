@@ -749,6 +749,7 @@ limex:add_error_estimator(biotErrorEst)
 -- limex:set_dt_min(dtMin)
 -- limex:set_dt_max(dtMax)
 limex:set_stepsize_safety_factor(0.25)
+limex:set_increase_factor(10)
 limex:set_stepsize_greedy_order_factor(0.0)
 
 limex:disable_matrix_cache()        -- This problem is linear

@@ -25,7 +25,7 @@ ug_load_script("footing.lua")
 ug_load_script("../config/barry_mercer.lua")
 
 
-util.biot.CheckAssertions()
+-- util.biot.CheckAssertions()
 -- ug_load_script("mandel.lua")
 
 
@@ -46,7 +46,7 @@ local numRefs      = util.GetParamNumber("--num-refs", 3, "total number of refin
 
 local ARGS = {
   problemID = util.GetParam("--problem-id", "deleeuw2d"), -- cryer3d‚
-  solverID =  util.GetParam("--solver-id", "GMG"),  --  "FixedStressEX", "UzawaMG", "UzawaSmoother","UzawaMGKrylov"
+  solverID =  util.GetParam("--solver-id", "GMGKrylov"),  --  "FixedStressEX", "UzawaMG", "UzawaSmoother","UzawaMGKrylov"
 
   useVTK =  util.HasParamOption("--with-vtk", "Plot VTK"),
   useDebugIter =  util.HasParamOption("--with-debug-iter", "Activate debug solver."),
@@ -113,22 +113,26 @@ if (not problem) then
   quit()
 end
 
-if (problem.parse_cmd_args) then
-  problem:parse_cmd_args()
-end
+-- Parse command line args
+if (problem.parse_cmd_args) then problem:parse_cmd_args() end
 
 --problem:init(kperm, poro, nu, 1.0/Kmedium, 1.0/Kfluid, 0.0)
-if(problem.init) then
-  problem:init(kperm, poro, nu, 1.0/Kmedium, 0.0, 0.0)
+if(problem.init) then 
+  problem:init(kperm, poro, nu, 1.0/Kmedium, 0.0, 0.0) 
 end
 
-print("Get charTime")
-local charTime = problem:get_char_time()  -- implemented by C++ object
+-- Characteristic time (implemented by C++ object)
+local charTime = problem:get_char_time()  
 print("charTime="..charTime)
-  
+
+-- Start & end time 
 startTime = 0.0
-endTime   = 2.0*charTime
-  
+if (problem.start_time) then startTime = problem:start_time() end
+
+endTime   = 2.0*charTime 
+if (problem.end_time) then endTime = problem:end_time() end
+
+-- Time stepping
 local dt  = dtFrac*charTime
 local dtMin = dtMinFrac
 local dtMax = endTime
@@ -527,15 +531,20 @@ local jacSolver = LinearSolver()
 jacSolver:set_preconditioner(jac)
 jacSolver:set_convergence_check(convCheck)
 
+local myIter = gmg
+if (ARGS.useDebugIter) then myIter =  dbgIter end
+
+
 solver["UzawaSmoother"] = LinearSolver()
 solver["UzawaSmoother"]:set_preconditioner(uzawaForward2)
 solver["UzawaSmoother"]:set_convergence_check(convCheck)
 
 solver["GMG"] = LinearSolver()
-solver["GMG"]:set_preconditioner(dbgIter) -- gmg, dbgIter
+solver["GMG"]:set_preconditioner(myIter) -- gmg, dbgIter
 solver["GMG"]:set_convergence_check(convCheck) -- cmpConvCheck
+
 solver["GMGKrylov"] = BiCGStab()
-solver["GMGKrylov"]:set_preconditioner(gmg) -- gmg, dbgIter
+solver["GMGKrylov"]:set_preconditioner(myIter) -- gmg, dbgIter
 solver["GMGKrylov"]:set_convergence_check(convCheck) -- cmpConvCheck
 
 
@@ -557,8 +566,7 @@ solver["LU"] = LinearSolver()
 solver["LU"]:set_preconditioner(LU())
 solver["LU"]:set_convergence_check(convCheck)
 
-local myIter = gmg
-if (ARGS.useDebugIter) then myIter =  dbgIter end
+
 
 local bicgstabSolver = BiCGStab()
 bicgstabSolver:set_preconditioner(myIter) --(gmg)

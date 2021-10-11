@@ -234,7 +234,7 @@ function CommonAddBiotElemDiscs(self, domainDisc,  bStationary)
 
   -- NEW C++ style
   local ucmps="ux,uy"
-  if (dim==3) then ucmps = ucmps + ",uz" end
+  if (dim==3) then ucmps = ucmps .. ",uz" end
   local factory = BiotElemDiscFactory(ucmps, self.uorder, "p", self.porder, bStationary)
   
   -- Create element discretizations.

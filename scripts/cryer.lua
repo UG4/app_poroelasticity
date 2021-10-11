@@ -326,7 +326,7 @@ function DeLeeuw.ComputePressure(self, r, t)
     local jj    = BesselJ0(aa) -- DeLeeuw.J0(aa);
     local jjx   = BesselJ0(aa*r/self.a); -- DeLeeuw.J0(aa*r/self.a);
     
-    local coeff = (1.0-jjx/jj)/(1.0-mc*aa*aa-1/(4*mc));  
+    local coeff = (1.0-jjx/jj)/(1.0-mc*aa*aa-1.0/(4*mc));  
     jt    = aa*aa*(t/self.charTime);
     
     pp = pp + coeff*math.exp(-jt);

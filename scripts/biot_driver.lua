@@ -32,7 +32,7 @@ ug_load_script("../config/barry_mercer.lua")
 -- TIMES AND TIME-STEPPING
 local startTime  = util.GetParamNumber("--start", 0.0, "end time") 
 local endTime    = util.GetParamNumber("--end", 1e+5, "end time") 
-local dtFrac     = util.GetParamNumber("--dtFrac", 1e-5, "time step size")
+local dtFrac     = util.GetParamNumber("--dtFrac", 1.0/256.0, "time step size")
 local dtMinFrac  = util.GetParamNumber("--dtminFrac", 1e-2, "minimal admissible time step size")
 local dtMaxFrac  = util.GetParamNumber("--dtmaxFrac", 0.1, "minimal admissible time step size (as fraction of tend)")
 local dtRed      = util.GetParamNumber("--dtred", 0.5, "time step size reduction factor on divergence")
@@ -45,7 +45,7 @@ local numRefs      = util.GetParamNumber("--num-refs", 3, "total number of refin
 
 
 local ARGS = {
-  problemID = util.GetParam("--problem-id", "deleeuw2d"), -- cryer3d‚
+  problemID = util.GetParam("--problem-id", "bm2D_new"), -- cryer3d‚
   solverID =  util.GetParam("--solver-id", "GMGKrylov"),  --  "FixedStressEX", "UzawaMG", "UzawaSmoother","UzawaMGKrylov"
 
   useVTK =  util.HasParamOption("--with-vtk", "Plot VTK"),
@@ -60,6 +60,9 @@ local ARGS = {
   MGSmootherType =  util.GetParam("--mg-smoother-type", "uzawa", "uzawa,cgs"),
   MGDebugLevel =  util.GetParam("--mg-debug-level", 0, "some non-negative integer"),
   
+  
+  -- Time stepping.
+  
   -- LIMEX
   LimexTOL     = util.GetParamNumber("--limex-tol", 1e-3, "TOL"),
   LimexNStages = util.GetParamNumber("--limex-num-stages", 4, "number of LIMEX stages q"),
@@ -67,12 +70,13 @@ local ARGS = {
 }
 
 
+print ("dtFrac        ="..dtFrac)
 
 print ("MGSmootherType="..ARGS.MGSmootherType)
-print ("MGNumSmooth="..ARGS.MGNumSmooth)
-print ("MGCycleType="..ARGS.MGCycleType)
-print ("MGBaseLevel="..ARGS.MGBaseLevel)
-print ("MGDebugLevel="..ARGS.MGDebugLevel)
+print ("MGNumSmooth   ="..ARGS.MGNumSmooth)
+print ("MGCycleType   ="..ARGS.MGCycleType)
+print ("MGBaseLevel   ="..ARGS.MGBaseLevel)
+print ("MGDebugLevel  ="..ARGS.MGDebugLevel)
 
 GetLogAssistant():set_debug_level("LIB_DISC_MULTIGRID", ARGS.MGDebugLevel); 
 --SetDebugLevel("LIB_DISC_MULTIGRID", 0)
@@ -133,9 +137,10 @@ endTime   = 2.0*charTime
 if (problem.end_time) then endTime = problem:end_time() end
 
 -- Time stepping
-local dt  = dtFrac*charTime
+local dt  = dtFrac*endTime
 local dtMin = dtMinFrac
 local dtMax = endTime
+print ("dt="..dt)
   
   
  if (problem == mandel) then 
@@ -547,6 +552,9 @@ solver["GMGKrylov"] = BiCGStab()
 solver["GMGKrylov"]:set_preconditioner(myIter) -- gmg, dbgIter
 solver["GMGKrylov"]:set_convergence_check(convCheck) -- cmpConvCheck
 
+solver["GMRES"] = GMRES(3)
+solver["GMRES"]:set_preconditioner(myIter) -- gmg, dbgIter
+solver["GMRES"]:set_convergence_check(convCheck) -- cmpConvCheck
 
 solver["FixedStressEX"] = LinearSolver()
 solver["FixedStressEX"]:set_preconditioner(fixedStressSuperLU)
@@ -566,20 +574,10 @@ solver["LU"] = LinearSolver()
 solver["LU"]:set_preconditioner(LU())
 solver["LU"]:set_convergence_check(convCheck)
 
-
-
-local bicgstabSolver = BiCGStab()
-bicgstabSolver:set_preconditioner(myIter) --(gmg)
-bicgstabSolver:set_convergence_check(convCheck)
-
 local cgSolver = CG()
 cgSolver:set_preconditioner(myIter) --(gmg)
 cgSolver:set_convergence_check(convCheck)
 
-
-local gmresSolver = GMRES(3)
-gmresSolver:set_preconditioner(myIter) -- gmg, dbgIter
-gmresSolver:set_convergence_check(convCheck)
 
 local sluSolver = SuperLU()
 
@@ -676,7 +674,8 @@ print ("Integrating from 0.0 to "..endTime)
 --dt =dt*1e-4*problem:get_char_time() -- smaller => more complicated
 
 local charTime = problem:get_char_time()
-dt = 1e-2*problem:get_char_time()
+-- dt = dtFrac*problem:get_char_time()
+dt = dtFrac*endTime
 dtMin = 1e-2*dt
 
 --
@@ -716,13 +715,15 @@ if ( ARGS.LimexNStages==0) then
 elseif ( ARGS.LimexNStages==1) then
   -- STANDARD (implicit Euler) time-stepping.
   local bCheckpointing = false
+  --[[
   util.SolveLinearTimeProblem(u, domainDiscT, lsolver, nil, "PoroElasticityTransient",
                    "ImplEuler", 1, startTime, endTime, dt, dtMin, 0.5, 
-                    bCheckpointing, myStepCallback0);   
-                   
-  --util.SolveNonlinearTimeProblem(u, domainDiscT, nlsolver, myStepCallback0, "PoroElasticityTransient",
-  --             "ImplEuler", 1, startTime, endTime, dt, dtMin, 0.5); 
-
+                    bCheckpointing, myStepCallback0) 
+   --]]          
+  -- [[
+  util.SolveNonlinearTimeProblem(u, domainDiscT, nlsolver, myStepCallback0, "PoroElasticityTransient",
+               "ImplEuler", 1, startTime, endTime, dt, dtMin, 0.5,bCheckpointing, myStepCallback0); 
+--]]
 else 
 --  ARGS.LimexNStages > 1
 		   

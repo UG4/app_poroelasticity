@@ -1,15 +1,14 @@
-<!--- HEADER BEGIN -->
-<!--- a) MathJax -->
-<script type="text/javascript" src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=default"></script>
-<!--- HEADER END -->
-
-
 # Poroelasticity 
 
 ## Governing equations
 The governing equations read:
-```math \partial_t (\Phi p + \alpha \nabla \cdot  u) + \nabla \cdot [-\kappa \nabla p] = f ```
-```math \nabla \cdot [\sigma - \alpha p \mathcal I] = f ```
+```math 
+\partial_t (\Phi p + \alpha \nabla \cdot  u) + \nabla \cdot [-\kappa \nabla p] = f
+```
+
+```
+math \nabla \cdot [\sigma - \alpha p \mathcal I] = f
+```
  where 
 
  |Symbol|name|

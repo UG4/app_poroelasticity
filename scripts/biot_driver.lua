@@ -43,29 +43,35 @@ local numPreRefs   = util.GetParamNumber("--numPreRefs", 0, "number of pre-Refin
 local numRefs      = util.GetParamNumber("--num-refs", 3, "total number of refinements (incl. pre-Refinements)") --4 -- 
 
 
-
+-- MORE ARGUMENTS
 local ARGS = {
-  problemID = util.GetParam("--problem-id", "bm2D_new"), -- cryer3d‚
-  solverID =  util.GetParam("--solver-id", "GMGKrylov"),  --  "FixedStressEX", "UzawaMG", "UzawaSmoother","UzawaMGKrylov"
+  discConfig 			= util.GetParam("--disc-id", "P1_stab"), -- cryer3d‚
+  problemID 			= util.GetParam("--problem-id", "bm2D_new"), -- cryer3d‚
+  solverID 				= util.GetParam("--solver-id", "GMGKrylov"),  --  "FixedStressEX", "UzawaMG", "UzawaSmoother","UzawaMGKrylov"
 
-  useVTK =  util.HasParamOption("--with-vtk", "Plot VTK"),
-  useDebugIter =  util.HasParamOption("--with-debug-iter", "Activate debug solver."),
-  -- doCheck =  util.HasParamOption("--with-check", ""),
+  -- Global options.
+  useVTK 					=  util.HasParamOption("--with-vtk", "Plot VTK"),
+  useDebugIter 		=  util.HasParamOption("--with-debug-iter", "Activate debug solver."),
+  -- doCheck 			=  util.HasParamOption("--with-check", ""),
  
   bSteadyStateMechanics = not util.HasParamOption("--with-transient-mechanics"), -- OPTIONAL: transient mechanics
  
-  MGCycleType = util.GetParam("--mg-cycle-type", "W", "V,F,W"),
-  MGBaseLevel = util.GetParamNumber("--mg-base-level", 0, "some non-negative integer"),  
-  MGNumSmooth = util.GetParamNumber("--mg-num-smooth", 2, "some positive integer"), 
-  MGSmootherType =  util.GetParam("--mg-smoother-type", "uzawa", "uzawa,cgs"),
-  MGDebugLevel =  util.GetParam("--mg-debug-level", 0, "some non-negative integer"),
+  -- Grid.
+  adaptiveRefs   	= util.GetParamNumber("--num-additional-adaptive-refs", 0, "total number of refinements (incl. pre-Refinements)"), 
+ 
+ 	-- Multigrid
+  MGCycleType 		= util.GetParam("--mg-cycle-type", "F", "V,F,W"),
+  MGBaseLevel 		= util.GetParamNumber("--mg-base-level", 0, "some non-negative integer"),  
+  MGNumSmooth 		= util.GetParamNumber("--mg-num-smooth", 2, "some positive integer"), 
+  MGSmootherType 	= util.GetParam("--mg-smoother-type", "uzawa3", "uzawa3,uzawa,cgs"),
+  MGDebugLevel 		= util.GetParam("--mg-debug-level", 0, "some non-negative integer"),
   
   
   -- Time stepping.
   
   -- LIMEX
-  LimexTOL     = util.GetParamNumber("--limex-tol", 1e-3, "TOL"),
-  LimexNStages = util.GetParamNumber("--limex-num-stages", 4, "number of LIMEX stages q"),
+  LimexTOL     		= util.GetParamNumber("--limex-tol", 1e-3, "TOL"),
+  LimexNStages 		= util.GetParamNumber("--limex-num-stages", 4, "number of LIMEX stages q"),
   
 }
 
@@ -93,6 +99,12 @@ local Kfluid  = 2.2 * 1e+6                  -- kPa -- 2.2 * 1e+6 --
 print ("Kmedium = "..Kmedium)
 print ("Kfluid  = "..Kfluid)
 
+
+-- Setup for discretization.
+local config = {
+	["P1_stab"] = BiotDiscConfig("ux,uy", 1, "p", 1, 1.0/12.0), -- P1-P1 + stabilization
+	["P2P1"]    = BiotDiscConfig("ux,uy", 2, "p", 1, 0.0),      -- P2-P1
+}
 --deleeuw2d--deleeuw2d -- cryer3d --cryer2d -- mandel3d --, mandel--, cryer3d
 local problemList = {
   -- legacy style
@@ -106,9 +118,10 @@ local problemList = {
   ["footing3D"] = footing3D,
   
   ["bm2D_tri"] = barrymercer2D_tri,
-  
-  -- new style
-  ["bm2D_new"] = BarryMercerProblem2dCPU1("ux,uy", "p"),
+ 
+  -- C++ style
+  ["bm2D_P1"] = BarryMercerProblem2dCPU1(config["P1_stab"]),
+  ["bm2D_P2"] = BarryMercerProblem2dCPU1(config["P2P1"]),
 }
 
 local problem = problemList[ARGS.problemID]
@@ -217,9 +230,40 @@ local gridName = problem.gridName or problem:get_gridname()
 
 local mandatorySubsets = problem.mandatorySubsets or nil
 local dom = util.CreateDomain(gridName, 0, mandatorySubsets)
-util.refinement.CreateRegularHierarchy(dom, numRefs, true, balancerDesc)
 
+-----------------------------------------------------------------
+--  Special refinement
+-----------------------------------------------------------------
+--
+local doHangingNode = false
 
+if (ARGS.adaptiveRefs>0) then
+ 	doHangingNode = true
+  local refiner = HangingNodeDomainRefiner(dom);
+ 
+    
+  local radius = 0.1
+  
+  for i=1,numRefs do
+    MarkForRefinement_All(refiner)
+    refiner:refine()
+  end
+  
+  local center = Vec()
+  center:set_coord(0, 0.25)
+  center:set_coord(1, 0.25)
+  
+  for i=1,ARGS.adaptiveRefs do
+    print ("Ref")
+     MarkForRefinement_FacesInSphere(dom, refiner, center, radius)
+    -- MarkForAdaption_ElementsTouchingSubset(dom, refiner, dom:subset_handler(), 4, "refine")
+    refiner:refine()
+    radius = radius*0.7
+  end
+else
+  -- Classic refinement
+  util.refinement.CreateRegularHierarchy(dom, numRefs, true, balancerDesc)
+end
 -----------------------------------------------------------------
 --  Approximation Space
 -----------------------------------------------------------------
@@ -241,10 +285,21 @@ local domainDiscT = DomainDiscretization(approxSpace)
 problem:add_elem_discs(domainDiscT, bSteadyStateMechanics)  -- implemented by C++ object
 problem:add_boundary_conditions(domainDiscT, bSteadyStateMechanics)  -- implemented by C++ object
 
+
 -- For Uzawa fixed-stress smoother.
 local uzawaSchurUpdateDisc = DomainDiscretization(approxSpace)
 problem:add_uzawa_discs(uzawaSchurUpdateDisc, bSteadyStateMechanics)  -- implemented by C++ object
 print("done!")
+
+
+if doHangingNode then
+  local hangingNodeConstraints = SymP1Constraints()
+  domainDisc0:add(hangingNodeConstraints)
+  domainDiscT:add(hangingNodeConstraints)
+  -- uzawaSchurUpdateDisc:add(hangingNodeConstraints)
+  print("Added hanging nodes!")
+end
+
 
 
 --------------------------------------------------------------------------------
@@ -408,33 +463,32 @@ local	baseCG = CG()
 baseCG:set_preconditioner(jac)
 baseCG:set_convergence_check(baseConvCheck)
 	
-	-- exact base solver
+-- exact base solver
 local	baseLU = LU()
 local	superLU = SuperLU()
 
 
-	-- Geometric Multi Grid
+-- Geometric Multi Grid
 local	gmg = GeometricMultiGrid(approxSpace)
 gmg:set_discretization(domainDiscT)
-gmg:set_base_level(ARGS.MGBaseLevel)  -- was 1 in Cincy
-gmg:set_base_solver(superLU)  -- was baseLU in Cincy
-gmg:set_presmoother(preSmoother) --(jac)
+gmg:set_base_level(ARGS.MGBaseLevel)  
+gmg:set_base_solver(superLU)  
+gmg:set_presmoother(preSmoother) 
 gmg:set_postsmoother(postSmoother) 
 gmg:set_cycle_type(ARGS.MGCycleType) -- 1:V, 2:W -- "F"
 gmg:set_num_presmooth(ARGS.MGNumSmooth)
 gmg:set_num_postsmooth(ARGS.MGNumSmooth)
 gmg:set_rap(problem.bRAP or true)  -- mandatory, if set_stationary
+gmg:set_smooth_on_surface_rim(true)
 
-
--- gmg:set_debug(dbgWriter) 
  if (problem.bRAP) then print ("gmg:bRAP=true") 
  else print ("gmg:bRAP=false") end
+ 
 -- gmg:set_debug(dbgWriter)
 
 
-
 local transfer = StdTransfer()
-transfer:enable_p1_lagrange_optimization(true)
+transfer:enable_p1_lagrange_optimization(false)
 --transfer:set_debug(dbgWriter)
 gmg:set_transfer(transfer)
 
@@ -469,10 +523,6 @@ local fixedStressSuperLU    = createUzawaIteration("p", nil, SuperLU(), SuperLU(
 local fixedStressMG    = createUzawaIteration("p", nil, gmgU, gmgP, uzawaSchurUpdateOp, 1.0)
 
 
---local transfer = StdTransfer()
---transfer:enable_p1_lagrange_optimization(false)
---gmg:set_transfer(transfer)
-
 --------------------------------
 -- debug solver /iter
 --------------------------------
@@ -490,7 +540,7 @@ if (dim==3) then
 cmpConvCheck:set_component_check("uz", p0*1e-14, 1e-6)
 end
 cmpConvCheck:set_component_check("p", p0*1e-14, 1e-6)
-cmpConvCheck:set_maximum_steps(100)
+cmpConvCheck:set_maximum_steps(10)
 cmpConvCheck:set_supress_unsuccessful(true)
 
 local cmpConvCheck2 = CompositeConvCheck(approxSpace)
@@ -506,7 +556,6 @@ cmpConvCheck2 = ConvCheck(200, 1e-25, 1e-20)
 
 local dbgSolver = LinearSolver()
 dbgSolver:set_preconditioner(gmg) -- cgs, gmg, uzawa
-dbgSolver:set_convergence_check(cmpConvCheck2)
 dbgSolver:set_convergence_check(cmpConvCheck)
 
 local dbgIter= DebugIterator()
@@ -524,7 +573,7 @@ local solver = {}
 
 local convCheck = ConvCheck()
 convCheck:set_maximum_steps(50)
-convCheck:set_reduction(1e-8) 
+convCheck:set_reduction(1e-10) 
 convCheck:set_minimum_defect(1e-14)
 -- convCheck = cmpConvCheck  -- for DEBUGGING purposes
 
@@ -664,8 +713,8 @@ problem:interpolate_start_values(u, startTime)
 
 -- Create callback.
 function myStepCallback0(u, step, time)
-  problem:post_processing(u, step, time)
   vtk:print("PoroElasticityInitial.vtu", u, step, time)
+  problem:post_processing(u, step, time)
 end
 
 print ("Integrating from 0.0 to "..endTime)
@@ -685,10 +734,8 @@ local stepClock = CuckooClock()
 if (( ARGS.LimexNStages > 0)) then
   local dt0 = charTime*1e-50
   print("Computing consistent initial value w/ dt0="..dt0)                
-  util.SolveNonlinearTimeProblem(u, domainDisc0, nlsolver, myStepCallback0, "PoroElasticityInitial",
-               "ImplEuler", 1, startTime, dt0, dt0, dt0, dtRed); 
-               
-
+ 	util.SolveNonlinearTimeProblem(u, domainDisc0, nlsolver, myStepCallback0, "PoroElasticityInitial",
+ 	              "ImplEuler", 1, startTime, dt0, dt0, dt0, dtRed); 
 end
 
 
@@ -697,9 +744,10 @@ if ( ARGS.LimexNStages==0) then
 
   -- Execute linear solver test suite.
   convCheck:set_reduction(1e-10) 
-  convCheck:set_maximum_steps(100)
+  convCheck:set_maximum_steps(500)
 
-  local dtTestSet = {1.0, 0.1, 0.01, 1e-3, 1e-4, 1e-6, 1e-8, 0.0}
+ -- local dtTestSet = {1.0, 0.1, 0.01, 1e-3, 1e-4, 1e-6, 1e-8, 0.0}
+  local dtTestSet = {1e-8, 0.0}
   for index,dtvalue in ipairs(dtTestSet) do
     dt = dtvalue*charTime
     endTime = dt
@@ -713,6 +761,7 @@ if ( ARGS.LimexNStages==0) then
 				   
 
 elseif ( ARGS.LimexNStages==1) then
+   print("Solving with Euler: dt="..dt.."/"..dtFrac)
   -- STANDARD (implicit Euler) time-stepping.
   local bCheckpointing = false
   --[[
@@ -722,12 +771,11 @@ elseif ( ARGS.LimexNStages==1) then
    --]]          
   -- [[
   util.SolveNonlinearTimeProblem(u, domainDiscT, nlsolver, myStepCallback0, "PoroElasticityTransient",
-               "ImplEuler", 1, startTime, endTime, dt, dtMin, 0.5,bCheckpointing, myStepCallback0); 
+               "ImplEuler", 1, startTime, endTime, dt, dtMin, 0.5, bCheckpointing); 
 --]]
-else 
---  ARGS.LimexNStages > 1
-		   
--- LIMEX time-stepping.
+
+else --  ARGS.LimexNStages > 1
+ -- LIMEX time-stepping.
 	
 -- Adjust NEWTON for LIMEX.
 newtonCheck:set_maximum_steps(1)
@@ -753,10 +801,6 @@ local limexDesc = {
 -- Call factory.
 local limex = util.limex.CreateIntegrator(limexDesc)
 limex:add_error_estimator(biotErrorEst)
--- limex:set_tolerance(0.001)
--- limex:set_time_step(dt)
--- limex:set_dt_min(dtMin)
--- limex:set_dt_max(dtMax)
 limex:set_stepsize_safety_factor(0.25)
 limex:set_increase_factor(10)
 limex:set_stepsize_greedy_order_factor(0.0)

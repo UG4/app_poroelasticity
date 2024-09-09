@@ -14,6 +14,9 @@ The governing equations read:
 
  |Symbol|name|
  |---|---|
- |$$\alpha$$| Biot parameter|
+ |$\alpha$| Biot parameter|
+ 
  |$$\Phi$$|  |
  |$$\kappa$$| |
+ 
+ Examples:

@@ -15,7 +15,7 @@ CWD=$(pwd)
 
 mkdir $1
 cd $1
-ugsubmit $NUMPROCS --- ugshell -ex poroelasticity/scripts/biot_driver.lua\
+ugsubmit $NUMPROCS --- ugshell -ex poroelasticity_app/scripts/biot_driver.lua\
  --num-refs $NUMREFS --problem-id $PROBLEMID \
  --limex-num-stages $LIMEX_NSTAGES --limex-tol $LIMEX_TOL \
  --solver-id $SOLVERID\

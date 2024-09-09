@@ -17,14 +17,12 @@ FOOTING_DEFAULT_VALUES.MU = 0.5*FOOTING_DEFAULT_VALUES.EYOUNG/(1.0+FOOTING_DEFAU
 
 footing2D = {
  
-  gridName = "../grids/footing2D.ugx",
+  gridName = "../grids/footing2D_checker.ugx",
   dim = 2,
   cpu = 1,
   
-  porder = 1,
-  uorder = 2,
-  
-  vStab = 0.0, 
+  porder = 1, uorder = 2, vStab = 0.0, 
+--  porder = 1, uorder = 1, vStab = 1.0/12.0, 
   
   mandatorySubsets ={"INNER", "IMPERMEABLE", "DRAINAGE", "FOOT"},
   
@@ -57,12 +55,13 @@ end
 
 function GenericAddStabilization(self, domainDisc)
   -- CommonAddBiotStabDiscs(self, domainDisc) 
-  print ("vStab1="..self.vStab) 
+  -- print ("vStab1="..self.vStab) 
   if (self.vStab and self.porder==self.uorder) then 
   
     local stab = self.vStab or 0.0
-     self.stabDisc = {}
+    print ("stab="..stab)
     
+    self.stabDisc = {}  
      for i=1,#self.elemDiscParams do
         local _parami = self.elemDiscParams[i]
         local _gammai = (_parami.LAMBDA+2*_parami.MU)
@@ -75,7 +74,8 @@ end
 
 function GenericFootingInit(self)
 
- local E = 1e+6        -- Young's elasticity modulus [Pa]
+  local E = 1e+6        -- Young's elasticity modulus [Pa]
+  local E2 = 1e+8 
   local nu = 0.2        -- Poisson"s ratio  [1]
   local kappa = 1e-12   --  permeability [m*m]  
   local mu = 1e-3       -- Pa*s    => Diff Coeff 1e-9
@@ -87,6 +87,9 @@ function GenericFootingInit(self)
   
   local _LAME_LAMBDA=E*nu/((1.0+nu)*(1.0-2.0*nu))
   local _LAME_MU=0.5*E/(1+nu)
+  
+  local _LAME_LAMBDA2=E2*nu/((1.0+nu)*(1.0-2.0*nu))
+  local _LAME_MU2=0.5*E2/(1+nu)
    
   Kdim[1] = Kv
   Kdim[2] = Kv/(2.0-2.0*nu)
@@ -98,19 +101,35 @@ function GenericFootingInit(self)
      LAMBDA= _LAME_LAMBDA, --E*nu/((1.0+nu)*(1.0-2.0*nu)), 
      MU = _LAME_MU, -- 0.5*E/(1+nu), 
      ALPHA=alpha, 
-     PHI= 0, 
+     PHI= 0.0, 
     --  THETA=(alpha*alpha)/Kdim[self.dim] 
      THETA=0.5*(alpha*alpha)/(2.0*_LAME_MU/self.dim + _LAME_LAMBDA)  -- Wheeler & Mikelic
   }
   
+  self.elemDiscParams[2] = { 
+     VOLUME = "INNER2",
+     KAPPA = kappa/mu, 
+     LAMBDA= _LAME_LAMBDA2, --E*nu/((1.0+nu)*(1.0-2.0*nu)), 
+     MU = _LAME_MU2, -- 0.5*E/(1+nu), 
+     ALPHA=alpha, 
+     PHI= 0.0, 
+     THETA=0.5*(alpha*alpha)/(2.0*_LAME_MU2/self.dim + _LAME_LAMBDA2)  -- Wheeler & Mikelic
+  }
+  
   print ("beta_stab= "..self.elemDiscParams[1].THETA)
+  print ("beta_stab= "..self.elemDiscParams[2].THETA)
 end
 
 
 function GenericFootingCharTime(self)
- local consolidation = self.elemDiscParams[1].KAPPA* (self.elemDiscParams[1].LAMBDA + 2*self.elemDiscParams[1].MU)
- print ("Characteristic time: " ..  (1.0*1.0)/consolidation)
- return (1.0*1.0)/consolidation -- seconds
+  local tchar = 0.0
+ for i=1,#self.elemDiscParams do
+  local consolidation  = self.elemDiscParams[i].KAPPA* (self.elemDiscParams[i].LAMBDA + 2*self.elemDiscParams[i].MU)
+  print ("Characteristic time: " ..  (1.0*1.0)/consolidation)
+  tchar = math.max(tchar, (1.0*1.0)/consolidation)
+ end -- for
+
+ return tchar  -- seconds
 end
 -- Read parameters from command line.
 function footing2D:parse_cmd_args()

@@ -15,7 +15,6 @@ package.path = package.path..";".. myPath.."/../config/?.lua;".. myPath.."/?.lua
 ug_load_script("ug_util.lua")
 ug_load_script("util/load_balancing_util_2.lua") 
 ug_load_script("util/profiler_util.lua")
-ug_load_script("plugins/Limex/limex_util.lua")
 
 
 -- 
@@ -46,7 +45,7 @@ local numRefs      = util.GetParamNumber("--num-refs", 3, "total number of refin
 -- MORE ARGUMENTS
 local ARGS = {
   discConfig 			= util.GetParam("--disc-id", "P1_stab"), -- cryer3d‚
-  problemID 			= util.GetParam("--problem-id", "bm2D_new"), -- cryer3d‚
+  problemID 			= util.GetParam("--problem-id", "bm2D_P1"), -- cryer3d‚
   solverID 				= util.GetParam("--solver-id", "GMGKrylov"),  --  "FixedStressEX", "UzawaMG", "UzawaSmoother","UzawaMGKrylov"
 
   -- Global options.
@@ -102,6 +101,7 @@ print ("Kfluid  = "..Kfluid)
 
 -- Setup for discretization.
 local config = {
+  -- This requires C++ plugin
 	["P1_stab"] = BiotDiscConfig("ux,uy", 1, "p", 1, 1.0/12.0), -- P1-P1 + stabilization
 	["P2P1"]    = BiotDiscConfig("ux,uy", 2, "p", 1, 0.0),      -- P2-P1
 }
@@ -275,15 +275,15 @@ local approxSpace = util.biot.CreateApproxSpace(dom, dim, uorder, porder)
 print("FE discretization...") 
 local bSteadyStateMechanics = ARGS.bSteadyStateMechanics -- true
 
--- For computing consistent initial values.
+-- Domain disc for computing consistent initial values u (for a given p). 
 local domainDisc0 = DomainDiscretization(approxSpace)
-problem:add_elem_discs(domainDisc0, bSteadyStateMechanics)  -- implemented by C++ object
-problem:add_boundary_conditions(domainDisc0, bSteadyStateMechanics)  -- implemented by C++ object
+problem:add_elem_discs_with_static_pressure(domainDisc0)          -- implemented by C++ object
+problem:add_boundary_conditions_u(domainDisc0)                    -- implemented by C++ object
 
--- For time-dependent problem.
+-- Domain disc for time-dependent problem.
 local domainDiscT = DomainDiscretization(approxSpace)
-problem:add_elem_discs(domainDiscT, bSteadyStateMechanics)  -- implemented by C++ object
-problem:add_boundary_conditions(domainDiscT, bSteadyStateMechanics)  -- implemented by C++ object
+problem:add_elem_discs(domainDiscT, bSteadyStateMechanics)            -- implemented by C++ object
+problem:add_boundary_conditions(domainDiscT, bSteadyStateMechanics)   -- implemented by C++ object
 
 
 -- For Uzawa fixed-stress smoother.
@@ -731,11 +731,18 @@ dtMin = 1e-2*dt
 local myclock = CuckooClock()
 local stepClock = CuckooClock()
 
+local proj = nil
+
 if (( ARGS.LimexNStages > 0)) then
   local dt0 = charTime*1e-50
-  print("Computing consistent initial value w/ dt0="..dt0)                
- 	util.SolveNonlinearTimeProblem(u, domainDisc0, nlsolver, myStepCallback0, "PoroElasticityInitial",
- 	              "ImplEuler", 1, startTime, dt0, dt0, dt0, dtRed); 
+  print("Computing consistent initial value w/ dt0="..dt0)     
+
+  local psolver = LinearSolver()
+  psolver:set_preconditioner(gmgP)
+  psolver:set_convergence_check(convCheck)
+
+  proj = BiotProjection(domainDisc0, psolver)
+  proj:apply(u)
 end
 
 
@@ -819,9 +826,25 @@ end
 local luaobserver = LuaCallbackObserver()
 
 function myLuaLimexPostProcess(step, time, currdt)
+  
   print ("Time per step :"..stepClock:toc()) -- get time for last step 
   local usol=luaobserver:get_current_solution()
+
+  
+
+  print ("Post process:"..stepClock:toc())
   problem:post_processing(usol, step, time)
+
+	-- TODO: Activate the following lines for projecing 
+	-- onto the space of consistent solutions. 
+	--[[
+  	print ("Projection:"..stepClock:toc())
+  	proj:apply(usol)
+  	
+  	print ("Post process2:"..stepClock:toc())
+  	problem:post_processing(usol, step, time)
+	--]]
+
   stepClock:tic() -- reset timing
   return 0;
 end
